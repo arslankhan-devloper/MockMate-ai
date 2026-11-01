@@ -1,19 +1,54 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { evaluateCode } from '../src/services/problemExecution.service.js'
 
-interface PistonResponseBody {
-  compile?: { code?: number; stdout?: string; stderr?: string; output?: string }
-  run?: { stdout?: string; stderr?: string; code?: number | null; signal?: string | null }
+// The shared OnlineCompiler client reads its configuration at module load, so
+// the key and base URL are set before the service is imported.
+process.env.ONLINECOMPILER_API_KEY = 'test-onlinecompiler-key'
+process.env.ONLINECOMPILER_API_URL = 'https://api.onlinecompiler.test'
+
+const { evaluateCode } = await import('../src/services/problemExecution.service.js')
+
+interface ProviderResponseBody {
+  output?: string
+  error?: string
+  status?: 'success' | 'error'
+  exit_code?: number
+  signal?: number | null
+  truncated?: boolean
+  time?: string
+  total?: string
+  memory?: string
+  time_limit?: number
 }
 
-function mockSandbox(responses: PistonResponseBody[]) {
+function providerResult(overrides: ProviderResponseBody = {}): ProviderResponseBody {
+  return {
+    output: '',
+    error: '',
+    status: 'success',
+    exit_code: 0,
+    signal: null,
+    truncated: false,
+    time: '0.01',
+    total: '0.02',
+    memory: '1024',
+    time_limit: 3,
+    ...overrides,
+  }
+}
+
+function mockSandbox(responses: ProviderResponseBody[]) {
   const original = globalThis.fetch
-  const requests: string[] = []
+  const requests: Array<{ url: string; auth: string; body: string }> = []
   let index = 0
-  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
-    requests.push(typeof init?.body === 'string' ? init.body : '')
-    const body = responses[index] ?? responses[responses.length - 1] ?? {}
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const headers = (init?.headers ?? {}) as Record<string, string>
+    requests.push({
+      url: String(url),
+      auth: headers.Authorization ?? '',
+      body: typeof init?.body === 'string' ? init.body : '',
+    })
+    const body = responses[index] ?? responses[responses.length - 1] ?? providerResult()
     index += 1
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -34,8 +69,8 @@ const tests = [
 
 test('accepts only when every real test output matches', async () => {
   const sandbox = mockSandbox([
-    { run: { stdout: '5\n', stderr: '', code: 0, signal: null } },
-    { run: { stdout: '9\n', stderr: '', code: 0, signal: null } },
+    providerResult({ output: '5\n' }),
+    providerResult({ output: '9\n' }),
   ])
   try {
     const result = await evaluateCode({
@@ -48,6 +83,7 @@ test('accepts only when every real test output matches', async () => {
     assert.equal(result.verdict, 'accepted')
     assert.equal(result.passedTests, 2)
     assert.equal(result.totalTests, 2)
+    assert.equal(result.provider, 'onlinecompiler')
     assert.equal(result.results.every((item) => item.passed), true)
   } finally {
     sandbox.restore()
@@ -56,8 +92,8 @@ test('accepts only when every real test output matches', async () => {
 
 test('reports a wrong answer with real visible details', async () => {
   const sandbox = mockSandbox([
-    { run: { stdout: '5\n', stderr: '', code: 0, signal: null } },
-    { run: { stdout: '5\n', stderr: '', code: 0, signal: null } },
+    providerResult({ output: '5\n' }),
+    providerResult({ output: '5\n' }),
   ])
   try {
     const result = await evaluateCode({
@@ -79,8 +115,8 @@ test('reports a wrong answer with real visible details', async () => {
 
 test('never returns hidden test inputs, expected values or output', async () => {
   const sandbox = mockSandbox([
-    { run: { stdout: '5\n', stderr: '', code: 0, signal: null } },
-    { run: { stdout: '999\n', stderr: '', code: 0, signal: null } },
+    providerResult({ output: '5\n' }),
+    providerResult({ output: '999\n' }),
   ])
   try {
     const result = await evaluateCode({
@@ -100,7 +136,7 @@ test('never returns hidden test inputs, expected values or output', async () => 
     assert.equal(result.results[1].stderr, undefined)
     assert.equal(JSON.stringify(result.results[1]).includes('999'), false)
     // The harness receives args only; expected values are compared server-side.
-    assert.equal(sandbox.requests.join('\n').includes('expected'), false)
+    assert.equal(sandbox.requests.map((request) => request.body).join('\n').includes('expected'), false)
   } finally {
     sandbox.restore()
   }
@@ -108,7 +144,7 @@ test('never returns hidden test inputs, expected values or output', async () => 
 
 test('ignores stderr warnings when the process exits successfully', async () => {
   const sandbox = mockSandbox([
-    { run: { stdout: '5\n', stderr: 'DeprecationWarning: something', code: 0, signal: null } },
+    providerResult({ output: '5\n', error: 'DeprecationWarning: something' }),
   ])
   try {
     const result = await evaluateCode({
@@ -127,8 +163,8 @@ test('ignores stderr warnings when the process exits successfully', async () => 
 
 test('reports compile errors separately from runtime errors', async () => {
   const sandbox = mockSandbox([
-    { compile: { code: 1, stderr: 'SyntaxError: invalid syntax' } },
-    { run: { stdout: '', stderr: 'Traceback: boom', code: 1, signal: null } },
+    providerResult({ status: 'error', exit_code: 1, error: 'SyntaxError: invalid syntax' }),
+    providerResult({ status: 'error', exit_code: 1, error: 'Traceback: boom' }),
   ])
   try {
     const compile = await evaluateCode({
@@ -153,9 +189,9 @@ test('reports compile errors separately from runtime errors', async () => {
   }
 })
 
-test('reports time limit exceeded when the sandbox kills the process', async () => {
+test('reports time limit exceeded when the provider kills the process', async () => {
   const sandbox = mockSandbox([
-    { run: { stdout: '', stderr: '', code: null, signal: 'SIGKILL' } },
+    providerResult({ status: 'error', exit_code: 124, error: 'Time limit exceeded' }),
   ])
   try {
     const result = await evaluateCode({
@@ -167,6 +203,34 @@ test('reports time limit exceeded when the sandbox kills the process', async () 
     })
     assert.equal(result.verdict, 'time_limit_exceeded')
     assert.equal(result.passedTests, 0)
+  } finally {
+    sandbox.restore()
+  }
+})
+
+test('sends the shared credentials and DSA compiler ids', async () => {
+  const sandbox = mockSandbox([providerResult({ output: '5\n' })])
+  try {
+    await evaluateCode({
+      language: 'python',
+      code: 'def add(values, count):\n  return 5',
+      functionName: 'add',
+      tests: [tests[0]],
+      revealDetails: true,
+    })
+    assert.equal(sandbox.requests[0].url, 'https://api.onlinecompiler.test/api/run-code-sync/')
+    // Bare key, no `Bearer ` prefix.
+    assert.equal(sandbox.requests[0].auth, 'test-onlinecompiler-key')
+    assert.equal(JSON.parse(sandbox.requests[0].body).compiler, 'python-3.14')
+
+    await evaluateCode({
+      language: 'javascript',
+      code: 'function add() { return 5 }',
+      functionName: 'add',
+      tests: [tests[0]],
+      revealDetails: true,
+    })
+    assert.equal(JSON.parse(sandbox.requests[1].body).compiler, 'nodejs-24')
   } finally {
     sandbox.restore()
   }

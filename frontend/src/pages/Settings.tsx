@@ -79,6 +79,7 @@ const interviewTypeLabels: Record<InterviewTypePreference, string> = {
   aptitude: 'Aptitude',
   combined: 'Combined',
   resume: 'Resume-based',
+  coding: 'Coding Round',
 }
 
 const codingLanguageLabels: Record<CodingLanguagePreference, string> = {

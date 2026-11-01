@@ -41,11 +41,10 @@ const groqBaseUrl = (readString(process.env.GROQ_API_URL) ?? 'https://api.groq.c
 // Jobicy uses its keyless public API, so it needs no environment variable.
 const himalayasApiKey = readString(process.env.HIMALAYAS_API_KEY)
 
-// Problem Solving uses an external sandbox for code execution. Nothing is ever
-// executed inside the Express process or on the host. Piston-compatible
-// endpoints (including self-hosted ones) are supported. The public service may
-// require a bearer token; set CODE_EXECUTION_API_KEY when needed, or set
-// CODE_EXECUTION_URL to self-host for privacy and predictable execution.
+// Problem Solving executes code through OnlineCompiler.io, reusing the same
+// client, key, base URL and timeout as the Coding Round (see the block below).
+// NOTE: the legacy Piston variables are still read for backward compatibility
+// with existing deployments but are no longer used by the DSA executor.
 const codeExecutionUrl = (
   readString(process.env.CODE_EXECUTION_URL) ?? 'https://emkc.org/api/v2/piston'
 ).replace(/\/+$/, '')
@@ -61,6 +60,19 @@ const codeExecutionTimeoutMs = Number.parseInt(
 // Supabase keys are never accepted as encryption material.
 const problemTestSecret =
   readString(process.env.PROBLEM_TEST_SECRET) ?? groqApiKey ?? ''
+
+// Coding Round (interview module) and Problem Solving (DSA) both execute code
+// through OnlineCompiler.io using this single configuration.
+// The key is a backend-only secret and is sent as the bare Authorization value
+// (the provider does not accept a `Bearer ` prefix).
+const onlineCompilerApiKey = readString(process.env.ONLINECOMPILER_API_KEY)
+const onlineCompilerApiUrl = (
+  readString(process.env.ONLINECOMPILER_API_URL) ?? 'https://api.onlinecompiler.io'
+).replace(/\/+$/, '')
+const onlineCompilerTimeoutMs = Number.parseInt(
+  readString(process.env.ONLINECOMPILER_TIMEOUT_MS) ?? '32000',
+  10,
+)
 
 export const env = {
   nodeEnv: readString(process.env.NODE_ENV) ?? 'development',
@@ -82,4 +94,12 @@ export const env = {
     ? Math.min(Math.max(codeExecutionTimeoutMs, 1000), 60000)
     : 15000,
   problemTestSecret,
+  onlineCompilerApiKey,
+  onlineCompilerApiUrl,
+  onlineCompilerConfigured: Boolean(onlineCompilerApiKey),
+  // The synchronous endpoint has a 30s request cap, so a slightly larger local
+  // timeout lets the provider's own error surface instead of hanging the API.
+  onlineCompilerTimeoutMs: Number.isFinite(onlineCompilerTimeoutMs)
+    ? Math.min(Math.max(onlineCompilerTimeoutMs, 5000), 45000)
+    : 32000,
 } as const

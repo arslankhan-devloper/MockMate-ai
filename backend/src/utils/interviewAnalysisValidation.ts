@@ -87,6 +87,25 @@ export function validateInterviewAnalysis(value: unknown): InterviewAnalysisVali
     return { ok: false, message: 'audio.speechRecognitionSupported must be a boolean.' }
   }
 
+  // Optional consent metadata. Older clients omit it entirely; when present it
+  // must be two explicit booleans so a session can never claim half-consent.
+  let consent: { cameraPresentation: boolean; communication: boolean } | null = null
+  if (value.consent !== undefined && value.consent !== null) {
+    if (!isRecord(value.consent)) {
+      return { ok: false, message: 'analysis.consent must be an object.' }
+    }
+    if (
+      typeof value.consent.cameraPresentation !== 'boolean' ||
+      typeof value.consent.communication !== 'boolean'
+    ) {
+      return { ok: false, message: 'analysis.consent must contain two booleans.' }
+    }
+    consent = {
+      cameraPresentation: value.consent.cameraPresentation,
+      communication: value.consent.communication,
+    }
+  }
+
   const allCounts = [
     ...Object.values(framing),
     ...Object.values(head),
@@ -102,6 +121,7 @@ export function validateInterviewAnalysis(value: unknown): InterviewAnalysisVali
     value: {
       version: 1,
       capturedAt: new Date(value.capturedAt).toISOString(),
+      ...(consent ? { consent } : {}),
       camera: {
         access,
         used: camera.used,

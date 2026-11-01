@@ -10,7 +10,8 @@ import { Avatar } from './ui'
 type Page =
   | 'landing' | 'login' | 'signup' | 'forgot'
   | 'dashboard' | 'resume' | 'interview-setup' | 'ai-interview'
-  | 'coding-interview' | 'report' | 'roadmap' | 'analytics'
+  | 'coding-interview' | 'problem-solving' | 'practice'
+  | 'report' | 'roadmap' | 'analytics'
   | 'placement-cell' | 'job-posting' | 'job-portal'
   | 'profile-setup' | 'officer-profile' | 'profile' | 'settings'
 
@@ -35,7 +36,7 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'resume', label: 'Resume Analysis', icon: FileText },
   { id: 'interview-setup', label: 'Interview Setup', icon: Mic },
-  { id: 'coding-interview', label: 'Problem Solving', icon: Code2 },
+  { id: 'problem-solving', label: 'Practice Hub', icon: Code2 },
   { id: 'report', label: 'Interview Report', icon: BarChart3 },
   { id: 'roadmap', label: 'Roadmap', icon: Map },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },

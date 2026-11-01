@@ -48,7 +48,7 @@ Optional AI variables:
 | `GROQ_MODEL` | Optional model override. Defaults to `openai/gpt-oss-120b`. |
 | `GROQ_API_URL` | Optional Groq-compatible base URL. Defaults to `https://api.groq.com/openai/v1`. |
 
-Problem Solving variables:
+Problem Solving / Practice Hub variables:
 
 | Variable | Purpose |
 | --- | --- |
@@ -63,7 +63,12 @@ Apply `supabase/migrations/20260109000000_problem_solving.sql` before using the
 Problem Solving endpoints, `20260111000000_sensitive_write_hardening.sql` to
 remove browser write access to server-authoritative tables, then
 `20260112000000_problem_submission_idempotency.sql` for idempotent submissions.
-The ordered staging procedure is in `STAGING_SECURITY_VERIFICATION.md`.
+Branch-wise MCQ and aptitude practice additionally require
+`20260114000000_practice_hub.sql`. That migration creates the bank and session
+tables but inserts **no** questions; practice endpoints return `503
+practice_not_configured` until it is applied and `409 practice_no_questions`
+until verified questions are added. The ordered staging procedure is in
+`STAGING_SECURITY_VERIFICATION.md`.
 
 Optional external-jobs variables:
 
@@ -85,7 +90,7 @@ Run from `backend/` or via the root wrappers.
 | `npm run build` | `npm run build:backend` | Compile to `backend/dist`. |
 | `npm run start` | `npm run start:backend` | Run the compiled server. |
 | `npm run typecheck` | `npm run typecheck:backend` | `tsc --noEmit`. |
-| `npm test` | — | External jobs, roadmap, interview, problem-solving (including idempotent submissions), hardening and account-deletion tests via `tsx --test`. |
+| `npm test` | — | External jobs, roadmap, interview, problem-solving (including idempotent submissions), branch/aptitude practice, hardening and account-deletion tests via `tsx --test`. |
 
 ## Endpoints
 
@@ -107,6 +112,13 @@ Run from `backend/` or via the root wrappers.
 | `POST` | `/api/problem-solving/questions/:id/run` | student | Run visible tests only in the sandbox. Not persisted. |
 | `POST` | `/api/problem-solving/questions/:id/submit` | student | Run visible + hidden tests, persist the real verdict and update adaptive progress. Requires a UUID `idempotencyKey`; retries return the stored result. |
 | `GET` | `/api/problem-solving/progress` | student | The caller's per-topic attempts, accepted count, hints and current difficulty. |
+| `GET` | `/api/practice/catalog` | student | Branch/category/topic/difficulty counts for `?kind=branch_mcq&branch=…` or `?kind=aptitude`. |
+| `GET` | `/api/practice/sessions/active` | student | The caller's latest unfinished practice session, or `session: null`. |
+| `GET` | `/api/practice/sessions/history` | student | The caller's own recent practice sessions (optional `?kind=`). |
+| `POST` | `/api/practice/sessions` | student | Start a bounded (1–30 question) branch or aptitude session in `practice` or `timed` mode. |
+| `GET` | `/api/practice/sessions/:id` | student | One owned session. Correct answers and explanations are included only for answered questions. |
+| `POST` | `/api/practice/sessions/:id/answers` | student | Record `{ questionId, selectedIndex }`. Correctness and score are server-derived; duplicate submissions return the stored answer. |
+| `POST` | `/api/practice/sessions/:id/complete` | student | Finalize an owned session and return its server-derived score and accuracy. |
 | `GET` | `/api/jobs` | bearer | Students: published jobs. Officers: all jobs of their own college. |
 | `GET` | `/api/jobs/external` | bearer | Read-only listings aggregated from external providers. Supports `query`, `country`, `employmentType`, `seniority` and `page` (1–5). |
 | `GET` | `/api/jobs/:id` | bearer | One job, if RLS makes it visible to the caller. |

@@ -3,8 +3,12 @@ import test from 'node:test'
 import type { FaceAnalysisMetrics } from '../src/lib/faceAnalysis.ts'
 import {
   buildAnalysisSummary,
+  buildCommunicationDelivery,
   buildCorrectnessInsights,
   buildInterviewInsights,
+  buildOnCameraPresentation,
+  cameraAnalysisEnabled,
+  countTranscriptFillers,
   createAnalysisAccumulator,
   parseAnalysisSummary,
   recordAnalysisSample,
@@ -17,6 +21,7 @@ function analysisSummary(overrides: Partial<InterviewAnalysisSummary['camera']> 
   return {
     version: 1,
     capturedAt: '2026-01-01T10:05:00.000Z',
+    consent: null,
     camera: {
       access: 'granted',
       used: true,
@@ -252,3 +257,162 @@ test('returns no fabricated strengths or improvements when data is missing', () 
   assert.equal(insights.wordsPerMinute, null)
   assert.ok(insights.recommendations.includes('Evaluate at least one answer to get feedback on answer quality.'))
 })
+
+test('persists optional analysis consent and tolerates older summaries', () => {
+  const accumulator = createAnalysisAccumulator()
+  const summary = buildAnalysisSummary(accumulator, {
+    mediaStatus: 'ready',
+    faceModel: 'running',
+    speechRecognitionSupported: true,
+    consent: { cameraPresentation: false, communication: true },
+    capturedAt: '2026-01-01T10:05:00.000Z',
+  })
+
+  assert.deepEqual(summary.consent, { cameraPresentation: false, communication: true })
+  assert.deepEqual(parseAnalysisSummary(summary)?.consent, { cameraPresentation: false, communication: true })
+
+  // Older sessions have no consent key at all: null, never a guess.
+  const legacy = analysisSummary()
+  const { consent: _dropped, ...legacyWithoutConsent } = legacy
+  assert.equal(parseAnalysisSummary(legacyWithoutConsent)?.consent, null)
+
+  // Half-formed consent is ignored rather than trusted.
+  assert.equal(
+    parseAnalysisSummary({ ...legacy, consent: { cameraPresentation: true } })?.consent,
+    null,
+  )
+})
+
+test('consent gates face analysis without ever blocking the interview', () => {
+  const declined = { cameraPresentation: false, communication: true }
+  assert.equal(cameraAnalysisEnabled(declined, true), false)
+  assert.equal(cameraAnalysisEnabled(declined, false), false)
+  assert.equal(cameraAnalysisEnabled({ cameraPresentation: true, communication: true }, true), true)
+  // Older sessions carry no consent record and keep working as before.
+  assert.equal(cameraAnalysisEnabled(null, true), true)
+  // A ready stream alone is never enough while the interview has not started.
+  assert.equal(cameraAnalysisEnabled(null, false), false)
+
+  // Declining analysis does not change what the session records about the camera.
+  const summary = analysisSummary()
+  summary.consent = declined
+  const section = buildOnCameraPresentation(summary)
+  assert.equal(section.status, 'declined')
+  assert.deepEqual(section.metrics, [])
+  assert.equal(summary.camera.used, true)
+})
+
+test('builds an analysable On-Camera Presentation section from real samples', () => {
+  const section = buildOnCameraPresentation(
+    analysisSummary({ consent: { cameraPresentation: true, communication: true } }),
+  )
+
+  assert.equal(section.status, 'analysed')
+  assert.equal(section.reason, null)
+  assert.equal(section.metrics.find((metric) => metric.label === 'Face visible')?.value, '100%')
+  assert.equal(section.metrics.find((metric) => metric.label === 'Well framed')?.value, '80%')
+  assert.equal(section.metrics.find((metric) => metric.label === 'Head centred')?.value, '80%')
+  assert.ok(section.strengths.length > 0)
+  // No emotion/confidence wording ever reaches the section.
+  const text = JSON.stringify(section).toLowerCase()
+  assert.equal(text.includes('confiden'), false)
+  assert.equal(text.includes('nervous'), false)
+})
+
+test('reports On-Camera Presentation as not analysed when declined or too sparse', () => {
+  const declined = buildOnCameraPresentation({
+    ...analysisSummary(),
+    consent: { cameraPresentation: false, communication: true },
+  })
+  assert.equal(declined.status, 'declined')
+  assert.deepEqual(declined.metrics, [])
+  assert.deepEqual(declined.strengths, [])
+
+  const sparse = buildOnCameraPresentation(analysisSummary({ samples: 3, faceDetected: 2 }))
+  assert.equal(sparse.status, 'insufficient')
+  assert.deepEqual(sparse.metrics, [])
+
+  const noCamera = buildOnCameraPresentation(analysisSummary({ used: false, samples: 0, faceDetected: 0 }))
+  assert.equal(noCamera.status, 'unavailable')
+
+  assert.equal(buildOnCameraPresentation(null).status, 'unavailable')
+})
+
+function evaluation(
+  criteria: Array<{ criterion: string; score: number | null; maxScore: number | null }>,
+  status = 'evaluated',
+) {
+  return { status, score: null as number | null, criteria }
+}
+
+test('derives a transparent Communication & Delivery score from real criteria', () => {
+  const section = buildCommunicationDelivery(
+    [
+      evaluation([
+        { criterion: 'Clarity', score: 20, maxScore: 25 },
+        { criterion: 'Structure', score: 15, maxScore: 25 },
+        { criterion: 'Relevance', score: 25, maxScore: 25 },
+        { criterion: 'Completeness', score: 10, maxScore: 25 },
+      ]),
+    ],
+    [
+      {
+        answer: Array.from({ length: 100 }, (_, index) => `word${index}`).join(' '),
+        answered: true,
+        spokenSeconds: 40,
+      },
+    ],
+    analysisSummary(),
+  )
+
+  // Clarity+Structure = 70, Relevance = 100, Completeness = 40 -> average 70.
+  assert.equal(section.status, 'analysed')
+  assert.equal(section.score, 70)
+  assert.equal(section.components.find((item) => item.label === 'Clarity & structure')?.score, 70)
+  assert.equal(section.components.find((item) => item.label === 'Relevance & technical explanation')?.score, 100)
+  assert.equal(section.components.find((item) => item.label === 'Examples & completeness')?.score, 40)
+  assert.equal(section.metrics.find((metric) => metric.label === 'Speaking pace')?.value, '150 wpm')
+})
+
+test('Communication & Delivery shows Not analysed instead of inventing metrics', () => {
+  const noAnswers = buildCommunicationDelivery([], [], analysisSummary())
+  assert.equal(noAnswers.status, 'unavailable')
+  assert.equal(noAnswers.score, null)
+
+  const noCriteria = buildCommunicationDelivery(
+    [evaluation([])],
+    [{ answer: 'A short answer.', answered: true, spokenSeconds: 5 }],
+    analysisSummary(),
+  )
+  assert.equal(noCriteria.score, null)
+  assert.equal(
+    noCriteria.components.find((item) => item.label === 'Clarity & structure')?.score,
+    null,
+  )
+  assert.equal(noCriteria.metrics.find((metric) => metric.label === 'Pauses')?.value, null)
+  assert.equal(noCriteria.metrics.find((metric) => metric.label === 'Filler words')?.value, null)
+  assert.equal(noCriteria.metrics.find((metric) => metric.label === 'Speaking pace')?.value, null)
+
+  const declined = buildCommunicationDelivery(
+    [evaluation([{ criterion: 'Clarity', score: 20, maxScore: 25 }])],
+    [{ answer: 'A short answer.', answered: true, spokenSeconds: 5 }],
+    { ...analysisSummary(), consent: { cameraPresentation: true, communication: false } },
+  )
+  assert.equal(declined.status, 'declined')
+  assert.equal(declined.score, null)
+})
+
+test('counts explicit filler words only when a rate is reliable', () => {
+  assert.equal(countTranscriptFillers('Um, so, you know, I mean it is kind of done.'), 4)
+
+  const long = Array.from({ length: 40 }, () => 'um word').join(' ')
+  const section = buildCommunicationDelivery(
+    [],
+    [{ answer: long, answered: true, spokenSeconds: 30 }],
+    analysisSummary(),
+  )
+  const fillers = section.metrics.find((metric) => metric.label === 'Filler words')
+  // 80 words with 40 fillers is a 50 per-100-words rate.
+  assert.equal(fillers?.value, '50 per 100 words')
+})
+

@@ -8,7 +8,10 @@ import Dashboard from './pages/Dashboard'
 import ResumeAnalysis from './pages/ResumeAnalysis'
 import InterviewSetup, { type InterviewConfig } from './pages/InterviewSetup'
 import AIInterview from './pages/AIInterview'
+import CodingRoundInterview from './pages/CodingRoundInterview'
 import CodingInterview from './pages/CodingInterview'
+import PracticeHub from './pages/PracticeHub'
+import PracticePage from './pages/PracticePage'
 import InterviewReport from './pages/InterviewReport'
 import Roadmap from './pages/Roadmap'
 import Analytics from './pages/Analytics'
@@ -50,7 +53,8 @@ const PAGES = [
   'landing', 'login-selection', 'login', 'signup', 'forgot',
   'officer-login',
   'dashboard', 'resume', 'interview-setup', 'ai-interview',
-  'coding-interview', 'report', 'roadmap', 'analytics',
+  'coding-interview', 'problem-solving', 'practice',
+  'report', 'roadmap', 'analytics',
   'placement-cell', 'job-posting', 'job-portal', 'profile-setup',
   'officer-profile', 'profile', 'settings',
 ] as const
@@ -471,7 +475,9 @@ export default function App() {
   if (fullscreenPages.includes(page)) {
     return (
       <div className={dark ? 'dark' : ''} style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
-        {page === 'ai-interview' && <AIInterview onNavigate={nav} config={interviewConfig} />}
+        {page === 'ai-interview' && (interviewConfig?.type === 'coding'
+          ? <CodingRoundInterview onNavigate={nav} config={interviewConfig} />
+          : <AIInterview onNavigate={nav} config={interviewConfig} />)}
         {page === 'coding-interview' && <CodingInterview onNavigate={nav} />}
       </div>
     )
@@ -532,6 +538,19 @@ export default function App() {
         />
       )}
       {page === 'resume' && <ResumeAnalysis onNavigate={nav} />}
+      {page === 'problem-solving' && role === 'student' && (
+        <PracticeHub
+          onNavigate={nav}
+          studentBranch={profile.branch.trim()}
+        />
+      )}
+      {page === 'practice' && role === 'student' && (
+        <PracticePage
+          kind={routeParam === 'aptitude' ? 'aptitude' : 'branch_mcq'}
+          studentBranch={profile.branch.trim()}
+          onNavigate={nav}
+        />
+      )}
       {page === 'interview-setup' && <InterviewSetup onNavigate={nav} onStart={setInterviewConfig} />}
       {page === 'report' && <InterviewReport onNavigate={nav} sessionId={routeParam || null} />}
       {page === 'roadmap' && <Roadmap branch={role === 'student' ? profile.branch.trim() : ''} />}

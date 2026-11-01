@@ -10,6 +10,7 @@ import { useFaceAnalysis } from '../lib/faceAnalysis'
 import { resolveStoredAnswer } from '../lib/interviewDrafts'
 import {
   buildAnalysisSummary,
+  cameraAnalysisEnabled,
   createAnalysisAccumulator,
   recordAnalysisSample,
   type InterviewAnalysisSummary,
@@ -504,14 +505,24 @@ export default function AIInterview({ onNavigate, config }: AIInterviewProps) {
   const lastFinalRef = useRef('')
   const scheduleRestartRef = useRef<(delay?: number) => void>(() => {})
 
+  // Optional consent chosen in Setup. Declining only disables that analysis
+  // section; the interview, camera and microphone behave exactly as before.
+  const analysisConsent = config.analysisConsent ?? null
+
   // On-device face analysis (MediaPipe FaceLandmarker). Runs only while the
-  // camera feed is live; nothing is recorded or transmitted.
-  const faceAnalysis = useFaceAnalysis(videoRef, camOn && hasVideo && mediaStatus === 'ready')
+  // camera feed is live AND the candidate consented in Setup; nothing is
+  // recorded or transmitted.
+  const faceAnalysis = useFaceAnalysis(
+    videoRef,
+    cameraAnalysisEnabled(analysisConsent, camOn && hasVideo && mediaStatus === 'ready'),
+  )
   const analysisRef = useRef(createAnalysisAccumulator())
 
   useEffect(() => {
-    if (camOn && hasVideo && mediaStatus === 'ready') analysisRef.current.cameraUsed = true
-  }, [camOn, hasVideo, mediaStatus])
+    if (cameraAnalysisEnabled(analysisConsent, camOn && hasVideo && mediaStatus === 'ready')) {
+      analysisRef.current.cameraUsed = true
+    }
+  }, [analysisConsent, camOn, hasVideo, mediaStatus])
 
   useEffect(() => {
     if (micOn) analysisRef.current.microphoneUsed = true
@@ -1386,6 +1397,7 @@ export default function AIInterview({ onNavigate, config }: AIInterviewProps) {
       mediaStatus,
       faceModel: faceAnalysis.status,
       speechRecognitionSupported: srSupported,
+      consent: config.analysisConsent ?? null,
     })
     const token = accessToken
     const sid = sessionIdRef.current

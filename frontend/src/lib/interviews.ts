@@ -153,6 +153,8 @@ export interface CreateInterviewSessionInput {
   subject?: string
   questionCount?: number
   clientSessionId?: string
+  /** Coding Round only: the candidate's preferred execution language key. */
+  codingLanguage?: string
 }
 
 export interface UpdateInterviewSessionInput {
@@ -165,6 +167,83 @@ export interface SaveInterviewTurnInput {
   answerText: string
   questionKey?: string
   spokenSeconds?: number
+}
+
+// ── Coding Round (Interview module) ─────────────────────────────
+// Runs are executed by the backend through OnlineCompiler.io. The browser sends
+// only a language key and code; the provider compiler id and API key stay on the
+// server.
+
+export interface CodingRunResult {
+  output: string
+  error: string
+  status: 'success' | 'error'
+  exitCode: number
+  signal: number | null
+  truncated: boolean
+  time: string
+  total: string
+  memory: string
+  timeLimit: number
+  provider: string
+}
+
+export interface CodingAttempt {
+  id: string
+  sessionId: string
+  questionIndex: number
+  language: string
+  compilerId: string
+  code: string
+  input: string
+  output: string
+  error: string
+  exitCode: number | null
+  status: string
+  signal: number | null
+  truncated: boolean
+  timeSeconds: number | null
+  totalSeconds: number | null
+  memoryKb: number | null
+  provider: string
+  createdAt: string
+}
+
+export interface RunCodingRoundInput {
+  language: string
+  code: string
+  input?: string
+  timeLimit?: number
+  questionIndex?: number
+}
+
+export interface RunCodingRoundResponse {
+  result: CodingRunResult
+  attempt: CodingAttempt | null
+  persisted: boolean
+  warning?: string
+}
+
+export async function runCodingRound(
+  accessToken: string,
+  sessionId: string,
+  input: RunCodingRoundInput,
+  signal?: AbortSignal,
+): Promise<RunCodingRoundResponse> {
+  return apiRequest<RunCodingRoundResponse>(
+    `/api/interviews/${encodeURIComponent(sessionId)}/coding/run`,
+    { method: 'POST', accessToken, body: input, signal },
+  )
+}
+
+export async function listCodingAttempts(
+  accessToken: string,
+  sessionId: string,
+): Promise<{ attempts: CodingAttempt[]; available: boolean }> {
+  return apiRequest<{ attempts: CodingAttempt[]; available: boolean }>(
+    `/api/interviews/${encodeURIComponent(sessionId)}/coding/attempts`,
+    { accessToken },
+  )
 }
 
 // Best-effort UUID for the create-session idempotency key. Falls back to null on

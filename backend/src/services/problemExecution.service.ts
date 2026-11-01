@@ -3,14 +3,20 @@ import type {
   CodingLanguage,
   ProblemTest,
 } from '../utils/problemGenerationValidation.js'
+import {
+  CodingProviderError,
+  runOnlineCompiler,
+  type CodingRunResult,
+} from './onlineCompiler.service.js'
+import type { CodingRoundLanguageId } from '../utils/codingRoundLanguages.js'
 
-// Sandboxed code execution via a Piston-compatible service.
+// Sandboxed code execution via OnlineCompiler.io (the same provider and the
+// same credentials used by the Coding Round). The compiler ids come from
+// `utils/codingRoundLanguages.ts`; nothing here re-declares them.
 //
 // IMPORTANT: user code is NEVER executed in the Express process or on the host.
-// Every attempt is sent to `CODE_EXECUTION_URL` (default: the public Piston
-// service; point this at a self-hosted instance for production/privacy). If the
-// sandbox cannot be reached the request fails explicitly; it never pretends a
-// submission was run.
+// Every attempt is sent to the provider over HTTPS. If the provider cannot be
+// reached the request fails explicitly; it never pretends a submission ran.
 
 export type ExecutionVerdict =
   | 'accepted'
@@ -48,18 +54,17 @@ export class SandboxError extends Error {
   }
 }
 
-const PYTHON_VERSION = process.env.CODE_EXECUTION_PYTHON_VERSION?.trim() || '3.10.0'
-const JAVASCRIPT_VERSION = process.env.CODE_EXECUTION_JAVASCRIPT_VERSION?.trim() || '18.15.0'
-
-const LANGUAGE_NAMES: Record<CodingLanguage, string> = {
+// DSA problem ids map 1:1 onto the Coding Round language ids, so the compiler
+// (`python-3.14`, `nodejs-24`) is resolved by the shared helper rather than
+// duplicated here.
+const COMPILER_LANGUAGE: Record<CodingLanguage, CodingRoundLanguageId> = {
   python: 'python',
   javascript: 'javascript',
 }
 
-const FILE_NAMES: Record<CodingLanguage, string> = {
-  python: 'main.py',
-  javascript: 'main.js',
-}
+// The provider takes a whole-second limit. DSA harnesses are a single function
+// call per test, so 3s matches the previous per-test budget.
+const TEST_TIME_LIMIT_SECONDS = 3
 
 export function isCodingLanguage(value: unknown): value is CodingLanguage {
   return value === 'python' || value === 'javascript'
@@ -128,31 +133,55 @@ function parseLastLine(stdout: string): { ok: true; value: unknown } | { ok: fal
   }
 }
 
-interface PistonRun {
-  stdout?: unknown
-  stderr?: unknown
-  output?: unknown
-  code?: unknown
-  signal?: unknown
-}
-
-interface PistonResponse {
-  compile?: PistonRun
-  run?: PistonRun
-}
-
 function asText(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function asCode(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
+// The provider reports a killed process through the exit code and/or the error
+// text rather than a POSIX signal name.
+function looksLikeTimeout(result: CodingRunResult): boolean {
+  if (result.exitCode === 124 || result.exitCode === 137) return true
+  return /time[ _]?limit (exceeded|reached)/i.test(result.error)
+}
+
+// Python and Node both surface a compile/syntax failure as `error` text with a
+// non-zero exit code; `evaluateCode` performs its own secondary detection.
+function looksLikeCompileError(result: CodingRunResult): boolean {
+  return /(syntaxerror|syntax error|compilation (failed|error)|error: expected)/i.test(result.error)
+}
+
+function toSandboxError(error: CodingProviderError): SandboxError {
+  switch (error.code) {
+    case 'not_configured':
+      return new SandboxError(503, 'code_execution_unavailable', 'Code execution is not configured.')
+    case 'timeout':
+      return new SandboxError(504, 'code_execution_timeout', 'The code execution service timed out.')
+    case 'unavailable':
+      return new SandboxError(
+        503,
+        'code_execution_unavailable',
+        'The code execution service is unavailable. Try again later.',
+      )
+    case 'rate_limited':
+      return new SandboxError(
+        429,
+        'code_execution_rate_limited',
+        'The code execution service is busy. Please try again shortly.',
+      )
+    case 'invalid_request':
+      return new SandboxError(
+        400,
+        'code_execution_rejected',
+        'The code execution service rejected this submission. Check the code and language.',
+      )
+    default:
+      return new SandboxError(502, 'code_execution_failed', 'The code execution service returned an error.')
+  }
 }
 
 async function executeOnce(
   language: CodingLanguage,
   code: string,
-  timeoutMs: number,
 ): Promise<{
   stdout: string
   stderr: string
@@ -160,83 +189,31 @@ async function executeOnce(
   timedOut: boolean
   compileFailed: boolean
 }> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), env.codeExecutionTimeoutMs)
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (env.codeExecutionApiKey) {
-    headers.Authorization = `Bearer ${env.codeExecutionApiKey}`
-  }
-
-  let response: Response
+  let result: CodingRunResult
   try {
-    response = await fetch(`${env.codeExecutionUrl}/execute`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        language: LANGUAGE_NAMES[language],
-        version: language === 'python' ? PYTHON_VERSION : JAVASCRIPT_VERSION,
-        files: [{ name: FILE_NAMES[language], content: code }],
-        stdin: '',
-        args: [],
-        compile_timeout: 10000,
-        run_timeout: timeoutMs,
-        run_memory_limit: 256_000_000,
-      }),
-      signal: controller.signal,
+    result = await runOnlineCompiler({
+      language: COMPILER_LANGUAGE[language],
+      code,
+      input: '',
+      timeLimit: TEST_TIME_LIMIT_SECONDS,
     })
   } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new SandboxError(504, 'code_execution_timeout', 'The code execution service timed out.')
-    }
-    throw new SandboxError(
-      503,
-      'code_execution_unavailable',
-      'The sandboxed code execution service is unavailable. Configure CODE_EXECUTION_URL or try again later.',
-    )
-  } finally {
-    clearTimeout(timer)
-  }
-
-  if (!response.ok) {
-    if (response.status === 429) {
-      throw new SandboxError(429, 'code_execution_rate_limited', 'The code execution service is busy. Please try again shortly.')
-    }
-    console.error(`[mockmate-backend] sandbox execution failed (status ${response.status})`)
+    if (err instanceof CodingProviderError) throw toSandboxError(err)
     throw new SandboxError(502, 'code_execution_failed', 'The code execution service returned an error.')
   }
 
-  let payload: PistonResponse
-  try {
-    payload = (await response.json()) as PistonResponse
-  } catch {
-    throw new SandboxError(502, 'code_execution_failed', 'The code execution service returned an unreadable response.')
-  }
+  const timedOut = looksLikeTimeout(result)
+  // A `status: 'error'` result with a zero exit code still means the program
+  // failed; normalise it so the caller's exit-code check cannot read it as a
+  // pass.
+  const exitCode = result.status === 'error' && result.exitCode === 0 ? 1 : result.exitCode
 
-  const compile = payload.compile
-  const compileCode = asCode(compile?.code)
-  if (compile && compileCode !== null && compileCode !== 0) {
-    return {
-      stdout: asText(compile.stdout),
-      stderr: asText(compile.stderr) || asText(compile.output) || 'Compilation failed.',
-      exitCode: compileCode,
-      timedOut: false,
-      compileFailed: true,
-    }
-  }
-
-  const run = payload.run
-  if (!run) {
-    throw new SandboxError(502, 'code_execution_failed', 'The code execution service returned no run result.')
-  }
-
-  const signal = asText(run.signal)
-  const exitCode = asCode(run.code)
   return {
-    stdout: asText(run.stdout) || asText(run.output),
-    stderr: asText(run.stderr),
+    stdout: result.output,
+    stderr: asText(result.error).trim(),
     exitCode,
-    timedOut: signal === 'SIGKILL' || signal === 'SIGTERM' || exitCode === 137,
-    compileFailed: false,
+    timedOut,
+    compileFailed: looksLikeCompileError(result),
   }
 }
 
@@ -255,7 +232,7 @@ export interface EvaluateCodeInput {
 // Runs every test in a separate sandbox process so state cannot leak between
 // cases. `results` contains full details only for visible tests.
 export async function evaluateCode(input: EvaluateCodeInput): Promise<EvaluationResult> {
-  if (!env.codeExecutionUrl) {
+  if (!env.onlineCompilerApiKey) {
     throw new SandboxError(503, 'code_execution_unavailable', 'Code execution is not configured.')
   }
   if (input.tests.length === 0) {
@@ -276,7 +253,7 @@ export async function evaluateCode(input: EvaluateCodeInput): Promise<Evaluation
 
     let execution
     try {
-      execution = await executeOnce(input.language, harness, 3000)
+      execution = await executeOnce(input.language, harness)
     } catch (err) {
       // A provider error aborts the whole evaluation; we never mark remaining
       // tests as passed or invent a result.
@@ -335,6 +312,6 @@ export async function evaluateCode(input: EvaluateCodeInput): Promise<Evaluation
     passedTests: passed,
     totalTests: total,
     results,
-    provider: 'piston',
+    provider: 'onlinecompiler',
   }
 }

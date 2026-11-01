@@ -8,6 +8,7 @@
 
 import { SESSION_STATUSES, type SessionStatus } from '../services/interviews.service.js'
 import { validateInterviewAnalysis } from './interviewAnalysisValidation.js'
+import { isCodingRoundLanguage } from './codingRoundLanguages.js'
 import { MAX_QUESTION_COUNT, MIN_QUESTION_COUNT } from './interviewQuestionValidation.js'
 
 export type FieldErrors = Record<string, string>
@@ -27,7 +28,7 @@ const INTERVIEW_TYPES = new Set([
   'civil',
   'general',
 ])
-const MODES = new Set(['technical', 'hr', 'aptitude', 'resume'])
+const MODES = new Set(['technical', 'hr', 'aptitude', 'resume', 'coding'])
 const DIFFICULTIES = new Set(['Easy', 'Medium', 'Hard', 'Mixed'])
 // English is the only supported interview language. Requests that try to
 // enable a removed language are rejected instead of silently downgraded.
@@ -146,6 +147,15 @@ export function validateCreateSession(body: unknown): InterviewValidationResult 
   const branch = readOptionalText(body, 'branch', MAX_LABEL, fields)
   const subject = readOptionalText(body, 'subject', MAX_LABEL, fields)
 
+  let codingLanguage: string | null = null
+  if (body.codingLanguage !== undefined && body.codingLanguage !== null) {
+    if (!isCodingRoundLanguage(body.codingLanguage)) {
+      fields.codingLanguage = 'Must be a supported coding language.'
+    } else {
+      codingLanguage = body.codingLanguage
+    }
+  }
+
   let questionCount: number | null = null
   if (body.questionCount !== undefined && body.questionCount !== null) {
     const raw = body.questionCount
@@ -197,6 +207,7 @@ export function validateCreateSession(body: unknown): InterviewValidationResult 
   put('branch', branch)
   put('subject', subject)
   if (questionCount !== null) config.questionCount = questionCount
+  if (codingLanguage !== null) config.codingLanguage = codingLanguage
 
   return {
     ok: true,

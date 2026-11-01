@@ -1,10 +1,16 @@
 import { useMemo, useState } from 'react'
-import { Code2, Brain, Calculator, ChevronRight, Clock, BarChart3, Briefcase, Building2, Play, Award, Languages, Cog, CircuitBoard, Users, Layers, FileText, Cpu, Zap, GraduationCap, Combine } from 'lucide-react'
+import { Code2, Brain, Calculator, ChevronRight, Clock, BarChart3, Briefcase, Building2, Play, Award, Languages, Cog, CircuitBoard, Users, Layers, FileText, Cpu, Zap, GraduationCap, Combine, Terminal, ScanFace } from 'lucide-react'
 import { Card, Button, SelectField, Badge, Input } from '../components/ui'
-import MediaCheck from '../components/MediaCheck'
+import InterviewMediaCheck from '../components/InterviewMediaCheck'
 import { useAuth } from '../lib/auth'
 import { loadResumeAnalysis, type StoredResume } from '../lib/resumeStore'
 import { buildResumeQuestions, type ResumeQuestion } from '../lib/resumeQuestions'
+import {
+  CODING_ROUND_LANGUAGES,
+  DEFAULT_CODING_ROUND_LANGUAGE,
+  codingRoundLanguageLabel,
+  type CodingRoundLanguageId,
+} from '../lib/codingRound'
 import {
   INTERVIEW_DIFFICULTIES,
   INTERVIEW_DURATIONS,
@@ -15,8 +21,8 @@ import {
   type InterviewTypePreference,
 } from '../lib/preferences'
 
-// Interview Setup only launches mock interviews. Coding practice is a separate
-// standalone module reachable from its own navigation entry.
+// Interview Setup launches mock interviews, including the dedicated Coding
+// Round. Problem Solving remains a separate standalone module.
 type Page = 'ai-interview' | 'resume'
 
 export interface InterviewConfig {
@@ -40,6 +46,13 @@ export interface InterviewConfig {
   questionCount?: number
   /** Questions derived from the stored resume analysis (resume mode only). */
   resumeQuestions?: ResumeQuestion[]
+  /** Coding Round only: execution language selected in setup. */
+  codingLanguage?: CodingRoundLanguageId
+  /**
+   * Optional consent for the two analysis sections. Declining never blocks the
+   * interview; it only turns off that section in the report.
+   */
+  analysisConsent?: { cameraPresentation: boolean; communication: boolean }
 }
 
 interface InterviewSetupProps {
@@ -55,10 +68,10 @@ const interviewTypes: { id: TypeId; label: string; desc: string; icon: typeof Br
   { id: 'aptitude', label: 'Aptitude', desc: 'Numerical, logical and problem-solving reasoning.', icon: Calculator, color: '#8b5cf6' },
   { id: 'combined', label: 'Combined', desc: 'Technical, HR/Behavioral and Aptitude questions in one session.', icon: Combine, color: '#f59e0b' },
   { id: 'resume', label: 'Resume-Based', desc: 'Questions built from your latest resume analysis.', icon: FileText, color: '#10b981' },
+  { id: 'coding', label: 'Coding Round', desc: 'Solve algorithm tasks in a live IDE with real code execution.', icon: Code2, color: '#14b8a6' },
 ]
 
-interface Subject { id: string; label: string; desc: string; type: string }
-interface Branch { id: string; label: string; short: string; icon: typeof Brain; color: string; subjects: Subject[] }
+interface Subject { id: string; label: string; desc: string; type: string }interface Branch { id: string; label: string; short: string; icon: typeof Brain; color: string; subjects: Subject[] }
 
 const branches: Branch[] = [
   {
@@ -128,6 +141,46 @@ const languages = [
 const companies = ['Google', 'Microsoft', 'Amazon', 'Meta', 'Apple', 'Flipkart', 'Swiggy', 'Zomato', 'TCS', 'Infosys', 'Wipro', 'Cognizant', 'Accenture', 'Custom']
 const roles = ['Software Engineer', 'SDE-1', 'SDE-2', 'Full Stack Developer', 'Frontend Engineer', 'Backend Engineer', 'Data Scientist', 'ML Engineer', 'DevOps Engineer', 'Product Manager']
 
+// An explicit on/off choice for one optional analysis section. Implemented as a
+// real checkbox so it is reachable by keyboard and announced by screen readers.
+function ConsentToggle({
+  id,
+  checked,
+  onChange,
+  label,
+  description,
+}: {
+  id: string
+  checked: boolean
+  onChange: (next: boolean) => void
+  label: string
+  description: string
+}) {
+  return (
+    <label
+      htmlFor={id}
+      className={`flex cursor-pointer items-start gap-3 rounded-[var(--radius-md)] border p-3 transition-all-smooth ${
+        checked ? 'border-[var(--accent-from)]/40 bg-[var(--accent-soft)]' : 'border-[var(--border)] bg-[var(--surface)]'
+      }`}
+    >
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer accent-[var(--accent-from)]"
+      />
+      <span className="min-w-0">
+        <span className="block text-xs font-bold text-[var(--text-primary)]">{label}</span>
+        <span className="block text-[10px] leading-relaxed text-[var(--text-muted)]">{description}</span>
+      </span>
+      <span className="ml-auto flex-shrink-0">
+        <Badge variant={checked ? 'success' : 'default'}>{checked ? 'On' : 'Off'}</Badge>
+      </span>
+    </label>
+  )
+}
+
 export default function InterviewSetup({ onNavigate, onStart }: InterviewSetupProps) {
   const { user } = useAuth()
   const savedPreferences = useMemo(
@@ -145,7 +198,12 @@ export default function InterviewSetup({ onNavigate, onStart }: InterviewSetupPr
   const [role, setRole] = useState('Software Engineer')
   const [experience, setExperience] = useState('Fresher')
   const [language, setLanguage] = useState<string>(INTERVIEW_LANGUAGE)
-  const [showMediaCheck, setShowMediaCheck] = useState(false)
+  const [codingLanguage, setCodingLanguage] = useState<CodingRoundLanguageId>(DEFAULT_CODING_ROUND_LANGUAGE)
+
+  // Optional analysis consent. Both default to on because the analysis is
+  // local-only, but either can be turned off without affecting the interview.
+  const [consentCamera, setConsentCamera] = useState(true)
+  const [consentCommunication, setConsentCommunication] = useState(true)
 
   // Latest analysed resume (stored by the Resume Analysis page), used to build
   // resume-based questions without re-uploading the file.
@@ -156,6 +214,7 @@ export default function InterviewSetup({ onNavigate, onStart }: InterviewSetupPr
 
   const isCombined = mode === 'combined'
   const isResume = mode === 'resume'
+  const isCoding = mode === 'coding'
   const isTechnical = mode === 'technical' || isCombined
   const fixedMode = mode === 'hr' || mode === 'aptitude'
 
@@ -165,16 +224,18 @@ export default function InterviewSetup({ onNavigate, onStart }: InterviewSetupPr
   const durationMinutes = Number.parseInt(duration, 10) || 30
 
   const effectiveType =
-    mode === 'hr' ? 'hr'
-      : mode === 'aptitude' ? 'aptitude'
-        : mode === 'resume' ? 'technical'
-          : activeSubject.type
+    mode === 'coding' ? 'coding'
+      : mode === 'hr' ? 'hr'
+        : mode === 'aptitude' ? 'aptitude'
+          : mode === 'resume' ? 'technical'
+            : activeSubject.type
   const domainLabel =
-    mode === 'technical' ? activeSubject.label
-      : mode === 'combined' ? `${activeSubject.label} + HR + Aptitude`
-        : mode === 'hr' ? 'HR / Behavioral'
-          : mode === 'aptitude' ? 'Aptitude'
-            : 'Resume-Based'
+    mode === 'coding' ? 'Coding Round'
+      : mode === 'technical' ? activeSubject.label
+        : mode === 'combined' ? `${activeSubject.label} + HR + Aptitude`
+          : mode === 'hr' ? 'HR / Behavioral'
+            : mode === 'aptitude' ? 'Aptitude'
+              : 'Resume-Based'
   const modeLabel = isCombined
     ? 'Combined Interview'
     : interviewTypes.find(t => t.id === mode)?.label ?? 'Technical'
@@ -196,7 +257,7 @@ export default function InterviewSetup({ onNavigate, onStart }: InterviewSetupPr
       typeLabel: domainLabel,
       // Combined sessions use a valid backend mode; the merged question bank is
       // selected client-side and the label records what the candidate chose.
-      mode: isCombined ? 'technical' : mode,
+      mode: isCoding ? 'coding' : isCombined ? 'technical' : mode,
       modeLabel,
       difficulty,
       experience,
@@ -210,18 +271,20 @@ export default function InterviewSetup({ onNavigate, onStart }: InterviewSetupPr
       durationMinutes,
       questionCount,
       resumeQuestions,
+      codingLanguage: isCoding ? codingLanguage : undefined,
+      analysisConsent: { cameraPresentation: consentCamera, communication: consentCommunication },
     })
     onNavigate('ai-interview')
   }
 
-  // Camera/microphone interviews show a device check first. Resume-based
-  // sessions run in the AI interview room too, so they get the same check.
+  // The media check now lives inline on this screen, so starting never opens a
+  // second pre-check modal. Its tracks are stopped when Setup unmounts.
   const start = () => {
     if (isResume && !storedResume) {
       onNavigate('resume')
       return
     }
-    setShowMediaCheck(true)
+    commit()
   }
 
   return (
@@ -364,6 +427,46 @@ export default function InterviewSetup({ onNavigate, onStart }: InterviewSetupPr
         </Card>
       )}
 
+      {/* Coding Round: dedicated IDE and real execution */}
+      {isCoding && (
+        <Card className="p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-[var(--radius-sm)] bg-[var(--accent-soft)] flex items-center justify-center flex-shrink-0 text-[var(--accent-from)]">
+              <Terminal size={18} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-[var(--text-primary)]">Coding Round</p>
+              <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                A dedicated IDE round with algorithm tasks and real code execution. Code runs in an
+                isolated OnlineCompiler.io sandbox from the backend; your API key is never exposed.
+              </p>
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2 flex items-center gap-2">
+              <Code2 size={12} /> Preferred language
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {CODING_ROUND_LANGUAGES.map(languageOption => (
+                <button
+                  key={languageOption.id}
+                  type="button"
+                  onClick={() => setCodingLanguage(languageOption.id)}
+                  aria-pressed={codingLanguage === languageOption.id}
+                  className={`py-2 rounded-[var(--radius-md)] text-xs font-bold transition-all-smooth cursor-pointer ${codingLanguage === languageOption.id ? 'gradient-bg text-white' : 'bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent-from)]'}`}
+                >
+                  {languageOption.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] text-[var(--text-muted)] leading-relaxed">
+              You can switch language inside the round. This choice is saved with the session; it does
+              not affect Problem Solving.
+            </p>
+          </div>
+        </Card>
+      )}
+
       {/* Configuration */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card className="p-5">
@@ -469,12 +572,55 @@ export default function InterviewSetup({ onNavigate, onStart }: InterviewSetupPr
         </Card>
       </div>
 
+      {/* Optional analysis consent. Nothing here requests device access - the
+          device check below still owns every permission prompt. */}
+      <Card className="p-5 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-[var(--radius-sm)] bg-[var(--accent-soft)] flex items-center justify-center flex-shrink-0 text-[var(--accent-from)]">
+            <ScanFace size={18} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-[var(--text-primary)]">Optional interview analysis</p>
+            <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mt-0.5">
+              These sections appear in your report. Camera frames are processed on this device only -
+              no video, audio or facial landmark data is ever uploaded or stored. Turning either off
+              never blocks or changes the interview.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <ConsentToggle
+            id="consent-camera-presentation"
+            checked={consentCamera}
+            onChange={setConsentCamera}
+            label="On-Camera Presentation"
+            description="Face visibility, framing, approximate head orientation and movement variation."
+          />
+          <ConsentToggle
+            id="consent-communication"
+            checked={consentCommunication}
+            onChange={setConsentCommunication}
+            label="Communication & Delivery"
+            description="Clarity, structure, relevance and completeness judged from your answer text and speaking time."
+          />
+        </div>
+        <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+          These are observable interview behaviours only. No emotion, personality or internal
+          confidence is inferred, and missing data is reported as “Not analysed” rather than scored.
+        </p>
+      </Card>
+
+      {/* Camera/microphone check lives in Setup. It requests access only when
+          the candidate presses the enable button and stops tracks on unmount. */}
+      <InterviewMediaCheck />
+
       {/* Summary + Start */}
       <Card className="p-6">
         <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-4">Session Summary</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
           {[
             { label: 'Mode', value: modeLabel },
+            ...(isCoding ? [{ label: 'IDE Language', value: codingRoundLanguageLabel(codingLanguage) }] : []),
             ...(isTechnical ? [{ label: 'Branch', value: branchLabel }] : []),
             { label: 'Role', value: role },
             { label: 'Company', value: company },
@@ -491,20 +637,21 @@ export default function InterviewSetup({ onNavigate, onStart }: InterviewSetupPr
         </div>
         <div className="flex items-center gap-3 p-4 rounded-[var(--radius-md)] bg-[var(--accent-soft)] border border-[var(--border)] mb-5">
           <Badge variant="info" className="flex-shrink-0">Tip</Badge>
-          <p className="text-xs text-[var(--text-secondary)]">Ensure your microphone and webcam are enabled before starting.</p>
+          <p className="text-xs text-[var(--text-secondary)]">
+            {isCoding
+              ? 'Use the device check above if you want the camera on, then start when you are ready. Your editor is saved with the session.'
+              : 'Use the device check above to verify your camera and microphone before starting.'}
+          </p>
         </div>
         <Button className="w-full" size="lg" onClick={start}>
-          <Play size={17} /> {isResume ? (storedResume ? 'Start Resume-Based Interview' : 'Analyze Resume First') : 'Start Interview Session'}
+          <Play size={17} /> {isCoding
+            ? 'Start Coding Round'
+            : isResume
+              ? (storedResume ? 'Start Resume-Based Interview' : 'Analyze Resume First')
+              : 'Start Interview Session'}
           <ChevronRight size={15} className="ml-auto" />
         </Button>
       </Card>
-
-      {showMediaCheck && (
-        <MediaCheck
-          onProceed={() => { setShowMediaCheck(false); commit() }}
-          onCancel={() => setShowMediaCheck(false)}
-        />
-      )}
     </div>
   )
 }

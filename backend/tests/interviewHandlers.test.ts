@@ -245,3 +245,74 @@ test('updates only the caller-owned session and preserves existing config', asyn
   assert.equal(ownershipFilters.length, 2)
   assert.ok(ownershipFilters.every((call) => call.value === 'student-1'))
 })
+
+test('persists analysis consent metadata with the caller-owned session', async () => {
+  const { client, calls } = updateClient(sessionRow())
+  const res = response()
+  const withConsent = {
+    ...analysis(),
+    consent: { cameraPresentation: false, communication: true },
+  }
+  await updateSessionHandler(
+    request({
+      client,
+      writeClient: client,
+      params: { id: 'session-1' },
+      body: { status: 'completed', analysis: withConsent },
+    }),
+    res,
+  )
+
+  assert.equal(res.statusCode, 200)
+  const update = calls.find((call) => call.operation === 'update') as {
+    patch: Record<string, unknown>
+  }
+  const config = update.patch.config as Record<string, unknown>
+  assert.deepEqual((config.analysis as Record<string, unknown>).consent, {
+    cameraPresentation: false,
+    communication: true,
+  })
+})
+
+test('rejects malformed or half-formed analysis consent', async () => {
+  for (const consent of [
+    'yes',
+    { cameraPresentation: true },
+    { cameraPresentation: 'true', communication: true },
+    { cameraPresentation: true, communication: null },
+  ]) {
+    const { client } = updateClient(sessionRow())
+    const res = response()
+    await updateSessionHandler(
+      request({
+        client,
+        writeClient: client,
+        params: { id: 'session-1' },
+        body: { status: 'completed', analysis: { ...analysis(), consent } },
+      }),
+      res,
+    )
+    assert.equal(res.statusCode, 400)
+  }
+})
+
+test('older analysis payloads without consent still save unchanged', async () => {
+  const { client, calls } = updateClient(sessionRow())
+  const res = response()
+  await updateSessionHandler(
+    request({
+      client,
+      writeClient: client,
+      params: { id: 'session-1' },
+      body: { status: 'completed', analysis: analysis() },
+    }),
+    res,
+  )
+
+  assert.equal(res.statusCode, 200)
+  const update = calls.find((call) => call.operation === 'update') as {
+    patch: Record<string, unknown>
+  }
+  const config = update.patch.config as Record<string, unknown>
+  assert.equal('consent' in (config.analysis as Record<string, unknown>), false)
+})

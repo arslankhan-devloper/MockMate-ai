@@ -4,6 +4,7 @@ import { applicationsRouter } from './applications.routes.js'
 import { healthRouter } from './health.routes.js'
 import { interviewsRouter } from './interviews.routes.js'
 import { jobsRouter } from './jobs.routes.js'
+import { practiceRouter } from './practice.routes.js'
 import { problemSolvingRouter } from './problemSolving.routes.js'
 import { profileRouter } from './profile.routes.js'
 import { resumeRouter } from './resume.routes.js'
@@ -24,4 +25,5 @@ export function registerRoutes(app: Express): void {
   app.use('/api/roadmap', roadmapRouter)
   app.use('/api/interviews', interviewsRouter)
   app.use('/api/problem-solving', problemSolvingRouter)
+  app.use('/api/practice', practiceRouter)
 }

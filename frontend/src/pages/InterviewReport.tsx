@@ -25,12 +25,16 @@ import {
   type ReportTurn,
 } from '../lib/interviewReport'
 import {
+  buildCommunicationDelivery,
   buildCorrectnessInsights,
   buildInterviewInsights,
+  buildOnCameraPresentation,
   type CorrectnessInsights,
   type InterviewAnalysisSummary,
   type InterviewInsights,
   type MediaAccess,
+  type SectionMetric,
+  type SectionStatus,
 } from '../lib/interviewAnalysis'
 
 type Page = 'interview-setup' | 'dashboard' | 'report'
@@ -331,6 +335,178 @@ function SpeechAnalysisCard({
         when there are at least 10 words and 10 seconds of speech. Full transcripts appear in the question history below.
         {!audio && ' Live microphone status was not saved for this session.'}
         {audio?.speechRecognitionSupported === false && ' Speech recognition was not available in that browser.'}
+      </p>
+    </Card>
+  )
+}
+
+const SECTION_STATUS_META: Record<SectionStatus, { label: string; variant: BadgeVariant }> = {
+  analysed: { label: 'Analysed', variant: 'success' },
+  declined: { label: 'Turned off', variant: 'default' },
+  insufficient: { label: 'Not analysed', variant: 'default' },
+  unavailable: { label: 'Not analysed', variant: 'default' },
+}
+
+function SectionBullets({ title, items }: { title: string; items: string[] }) {
+  if (items.length === 0) return null
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{title}</p>
+      <ul className="space-y-1">
+        {items.map((item) => (
+          <li key={item} className="flex items-start gap-1.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+            <CheckCircle2 size={11} className="mt-0.5 flex-shrink-0 text-[var(--accent-from)]" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function MetricRow({ metric }: { metric: SectionMetric }) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold text-[var(--text-primary)]">{metric.label}</p>
+        <p className="text-[10px] leading-relaxed text-[var(--text-muted)]">{metric.note}</p>
+      </div>
+      <span className={`flex-shrink-0 text-xs font-bold ${metric.value === null ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+        {metric.value ?? 'Not analysed'}
+      </span>
+    </div>
+  )
+}
+
+// Section 1: On-Camera Presentation. Purely observable framing/visibility data
+// from the on-device summary. Never an emotion, personality or confidence score.
+function OnCameraPresentationCard({ analysis }: { analysis: InterviewAnalysisSummary | null }) {
+  const section = buildOnCameraPresentation(analysis)
+  const status = SECTION_STATUS_META[section.status]
+
+  return (
+    <Card className="p-5 space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <ScanFace size={15} className="text-[var(--accent-from)]" />
+        <p className="text-sm font-bold text-[var(--text-primary)]">On-Camera Presentation</p>
+        <Badge variant={status.variant} className="ml-auto">{status.label}</Badge>
+      </div>
+
+      {section.reason && (
+        <p className="text-xs leading-relaxed text-[var(--text-muted)]">{section.reason}</p>
+      )}
+
+      {section.metrics.length > 0 && (
+        <div className="space-y-2">
+          {section.metrics.map((metric) => (
+            <MetricRow key={metric.label} metric={metric} />
+          ))}
+        </div>
+      )}
+
+      <SectionBullets title="Strengths" items={section.strengths} />
+      <SectionBullets title="Suggestions" items={section.suggestions} />
+
+      <p className="text-[10px] leading-relaxed text-[var(--text-muted)]">
+        These are approximate on-device estimates of visible framing only. They do not measure
+        emotion, personality, nervousness or internal confidence, and no video or landmarks leave
+        this device.
+      </p>
+    </Card>
+  )
+}
+
+// Section 2: Communication & Delivery. Built from the stored answer transcripts,
+// measured speaking time and the existing AI answer evaluations. Every score is
+// the transparent average of named criteria; unavailable metrics stay unmeasured.
+function CommunicationDeliveryCard({
+  evaluations,
+  turns,
+  analysis,
+}: {
+  evaluations: InterviewEvaluation[]
+  turns: ReportTurn[]
+  analysis: InterviewAnalysisSummary | null
+}) {
+  const section = buildCommunicationDelivery(
+    evaluations.map((evaluation) => ({
+      status: evaluation.status,
+      score: evaluation.score,
+      criteria: evaluation.criteria.map((criterion) => ({
+        criterion: criterion.criterion,
+        score: criterion.score,
+        maxScore: criterion.maxScore,
+      })),
+    })),
+    turns.map((turn) => ({
+      answer: turn.answer,
+      answered: turn.answered,
+      spokenSeconds: turn.spokenSeconds,
+    })),
+    analysis,
+  )
+  const status = SECTION_STATUS_META[section.status]
+
+  return (
+    <Card className="p-5 space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <MessageSquareText size={15} className="text-[var(--accent-from)]" />
+        <p className="text-sm font-bold text-[var(--text-primary)]">Communication &amp; Delivery</p>
+        <Badge variant={status.variant} className="ml-auto">{status.label}</Badge>
+      </div>
+
+      {section.reason && (
+        <p className="text-xs leading-relaxed text-[var(--text-muted)]">{section.reason}</p>
+      )}
+
+      {section.status === 'analysed' && (
+        <div className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+              Communication &amp; delivery score
+            </p>
+            <p className="text-xl font-extrabold text-[var(--text-primary)]">
+              {section.score === null ? 'Not analysed' : `${section.score}/100`}
+            </p>
+          </div>
+          <p className="ml-auto max-w-[60%] text-[10px] leading-relaxed text-[var(--text-muted)]">
+            Transparent average of the criteria below. It reflects observable answer quality and
+            delivery only - not personality or internal confidence.
+          </p>
+        </div>
+      )}
+
+      {section.components.length > 0 && (
+        <div className="space-y-2">
+          {section.components.map((component) => (
+            <div key={component.label} className="space-y-1">
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="font-semibold text-[var(--text-primary)]">{component.label}</span>
+                <span className={`font-bold ${component.score === null ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+                  {component.score === null ? 'Not analysed' : `${component.score}/100`}
+                </span>
+              </div>
+              {component.score !== null && <ProgressBar value={component.score} size="sm" />}
+              <p className="text-[10px] leading-relaxed text-[var(--text-muted)]">{component.note}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {section.metrics.length > 0 && (
+        <div className="space-y-2">
+          {section.metrics.map((metric) => (
+            <MetricRow key={metric.label} metric={metric} />
+          ))}
+        </div>
+      )}
+
+      <SectionBullets title="Strengths" items={section.strengths} />
+      <SectionBullets title="Suggestions" items={section.suggestions} />
+
+      <p className="text-[10px] leading-relaxed text-[var(--text-muted)]">
+        Scores come from the saved answer text, measured speaking seconds and the existing AI answer
+        evaluations. Metrics that could not be measured reliably are shown as “Not analysed”.
       </p>
     </Card>
   )
@@ -988,6 +1164,14 @@ function ReportView({ data, source, canEvaluate, evaluations, evaluating, onEval
           {data.id ? <p className="font-mono break-all">Session ID: {data.id}</p> : null}
         </div>
       </Card>
+
+      <OnCameraPresentationCard analysis={data.analysis} />
+
+      <CommunicationDeliveryCard
+        evaluations={Object.values(evaluations)}
+        turns={data.turns}
+        analysis={data.analysis}
+      />
 
       <FaceAnalysisCard analysis={data.analysis} />
 

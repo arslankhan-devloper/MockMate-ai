@@ -33,12 +33,7 @@ import {
   type ProblemWorkspace,
 } from '../lib/problemSolving'
 import {
-  browserSessionStorage,
-  clearStoredSubmissionKey,
-  fingerprintSubmissionCode,
-  loadStoredSubmissionKey,
   resolveSubmissionIdempotencyKey,
-  saveStoredSubmissionKey,
   type PendingSubmission,
 } from '../lib/problemSubmissionKey'
 import {
@@ -51,7 +46,7 @@ import {
 import { browserPreferenceStorage, loadCodingPreferences } from '../lib/preferences'
 
 interface CodingInterviewProps {
-  onNavigate: (page: 'dashboard' | 'report' | 'interview-setup') => void
+  onNavigate: (page: 'dashboard' | 'report' | 'interview-setup' | 'problem-solving') => void
 }
 
 type PanelTab = 'Description' | 'Hints' | 'Progress' | 'Review'
@@ -399,8 +394,8 @@ export default function CodingInterview({ onNavigate }: CodingInterviewProps) {
     return (
       <div className="h-dvh flex flex-col bg-[var(--bg)]">
         <div className="p-4">
-          <Button variant="ghost" size="sm" onClick={() => onNavigate('dashboard')}>
-            <ArrowLeft className="w-4 h-4" /> Back to dashboard
+          <Button variant="ghost" size="sm" onClick={() => onNavigate('problem-solving')}>
+            <ArrowLeft className="w-4 h-4" /> Back to Practice Hub
           </Button>
         </div>
         <div className="flex-1 flex items-center justify-center px-6">
@@ -414,8 +409,8 @@ export default function CodingInterview({ onNavigate }: CodingInterviewProps) {
               <Button onClick={() => setReloadNonce((value) => value + 1)}>
                 <RefreshCw className="w-4 h-4" /> Try again
               </Button>
-              <Button variant="ghost" onClick={() => onNavigate('dashboard')}>
-                Back to dashboard
+              <Button variant="ghost" onClick={() => onNavigate('problem-solving')}>
+                Back to Practice Hub
               </Button>
             </div>
           </Card>
@@ -431,9 +426,9 @@ export default function CodingInterview({ onNavigate }: CodingInterviewProps) {
     <div className="h-dvh flex flex-col bg-[var(--bg)] text-[var(--text-primary)]">
       <header className="shrink-0 border-b border-[var(--border)] bg-[var(--surface-raised)] px-3 sm:px-5 py-3">
         <div className="flex flex-wrap items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => onNavigate('dashboard')} aria-label="Back to dashboard">
+          <Button variant="ghost" size="sm" onClick={() => onNavigate('problem-solving')} aria-label="Back to Practice Hub">
             <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Dashboard</span>
+            <span className="hidden sm:inline">Practice Hub</span>
           </Button>
           <div className="min-w-0">
             <div className="flex items-center gap-2">

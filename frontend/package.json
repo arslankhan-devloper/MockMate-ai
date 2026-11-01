@@ -12,11 +12,13 @@
     "test:roadmap": "node --test tests/roadmap.test.ts",
     "test:interview-drafts": "node --test tests/interviewDrafts.test.ts",
     "test:interview-report": "node --test tests/interviewReport.test.ts",
+    "test:coding-round": "node --test tests/codingRound.test.ts",
     "test:analytics": "node --test tests/analytics.test.ts",
     "test:profile": "node --test tests/profile.test.ts",
     "test:preferences": "node --test tests/preferences.test.ts",
     "test:theme": "node --test tests/theme.test.ts",
     "test:problem-solving": "node --test tests/problemDrafts.test.ts tests/problemSubmissionKey.test.ts",
+    "test:practice": "node --test tests/practice.test.ts",
     "test:account-deletion": "node --test tests/accountDeletion.test.ts",
     "format": "oxfmt"
   },

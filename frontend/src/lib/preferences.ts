@@ -1,6 +1,6 @@
 export const INTERVIEW_LANGUAGE = 'en' as const
 
-export const INTERVIEW_TYPES = ['technical', 'hr', 'aptitude', 'combined', 'resume'] as const
+export const INTERVIEW_TYPES = ['technical', 'hr', 'aptitude', 'combined', 'resume', 'coding'] as const
 export type InterviewTypePreference = (typeof INTERVIEW_TYPES)[number]
 
 export const INTERVIEW_DIFFICULTIES = ['Easy', 'Medium', 'Hard', 'Mixed'] as const
