@@ -1,0 +1,20 @@
+{
+  "name": "mockmate",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MockMate - Smart Interview Assessment & Placement Readiness System",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview",
+    "typecheck": "npm --prefix frontend run typecheck",
+    "format": "npm --prefix frontend run format",
+    "install:frontend": "npm --prefix frontend install",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "start:backend": "npm --prefix backend run start",
+    "typecheck:backend": "npm --prefix backend run typecheck",
+    "install:backend": "npm --prefix backend install"
+  }
+}

@@ -1,0 +1,131 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-brand-50: #f0f0ff;
+  --color-brand-100: #e2e2ff;
+  --color-brand-200: #c4c4ff;
+  --color-brand-300: #a8a4ff;
+  --color-brand-400: #8b80ff;
+  --color-brand-500: #7c5cfc;
+  --color-brand-600: #6b3ef5;
+  --color-brand-700: #5a2de8;
+  --color-brand-800: #4420c9;
+  --color-brand-900: #2e14a0;
+
+  --color-sky-brand: #3b82f6;
+  --color-violet-brand: #7c5cfc;
+}
+
+/* ── Light mode tokens ─────────────────────────────────────────── */
+:root {
+  --bg: #f4f3ff;
+  --bg-subtle: #ffffff;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-raised: rgba(255, 255, 255, 0.92);
+  --border: rgba(124, 92, 252, 0.12);
+  --border-subtle: rgba(0, 0, 0, 0.07);
+  --text-primary: #0f0a2e;
+  --text-secondary: #4a4570;
+  --text-muted: #8e8ab0;
+  --accent-from: #7c5cfc;
+  --accent-to: #3b82f6;
+  --accent-soft: rgba(124, 92, 252, 0.1);
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.4);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(124, 92, 252, 0.08), 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-lg: 0 8px 32px rgba(124, 92, 252, 0.12), 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-glow: 0 0 40px rgba(124, 92, 252, 0.2);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --sidebar-bg: rgba(255, 255, 255, 0.85);
+}
+
+/* ── Dark mode tokens ───────────────────────────────────────────── */
+.dark {
+  --bg: #07040f;
+  --bg-subtle: #0e0a1e;
+  --surface: rgba(18, 12, 40, 0.8);
+  --surface-raised: rgba(26, 18, 58, 0.9);
+  --border: rgba(124, 92, 252, 0.18);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --text-primary: #f0eeff;
+  --text-secondary: #a89fd0;
+  --text-muted: #5e5880;
+  --accent-from: #7c5cfc;
+  --accent-to: #3b82f6;
+  --accent-soft: rgba(124, 92, 252, 0.15);
+  --glass-bg: rgba(18, 12, 40, 0.7);
+  --glass-border: rgba(124, 92, 252, 0.2);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.4), 0 2px 8px rgba(124, 92, 252, 0.1);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5), 0 4px 16px rgba(124, 92, 252, 0.15);
+  --shadow-glow: 0 0 60px rgba(124, 92, 252, 0.3);
+  --sidebar-bg: rgba(10, 6, 24, 0.92);
+}
+
+/* ── Base ───────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background-color: var(--bg);
+  color: var(--text-primary);
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  min-height: 100vh;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-from); }
+
+/* ── Gradient utilities ─────────────────────────────────────────── */
+.gradient-text {
+  background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+}
+
+.gradient-bg-soft {
+  background: linear-gradient(135deg, rgba(124,92,252,0.08) 0%, rgba(59,130,246,0.08) 100%);
+}
+
+/* ── Glass card ─────────────────────────────────────────────────── */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+}
+
+/* ── Transitions ────────────────────────────────────────────────── */
+.transition-all-smooth {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Focus rings ────────────────────────────────────────────────── */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent-from);
+  outline-offset: 2px;
+}

@@ -1,0 +1,11 @@
+{
+  "title": "MockMate",
+  "description": "MockMate is a Smart Interview Assessment & Placement Readiness System for college students — mock interview practice, resume review, problem solving and campus placement tools.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
