@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import {
   AlertCircle,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { Badge, Button, Card, TabBar } from '../components/ui'
 import { useAuth } from '../lib/auth'
+import { notifyAnalyticsUpdated } from '../lib/analyticsFormat'
 import {
   describeProblemError,
   getNextProblem,
@@ -319,6 +320,7 @@ export default function CodingInterview({ onNavigate }: CodingInterviewProps) {
       setConsoleTab('Results')
       setSelectedResult(0)
       setPanelTab('Review')
+      notifyAnalyticsUpdated()
     } catch (err) {
       setActionError(describeProblemError(err))
     } finally {
@@ -438,7 +440,7 @@ export default function CodingInterview({ onNavigate }: CodingInterviewProps) {
               </Badge>
             </div>
             <p className="text-[11px] text-[var(--text-muted)] truncate">
-              {question.topic} · Problem {question.sequence} · {LANGUAGE_LABELS[language]}
+              {question.topic} Â· Problem {question.sequence} Â· {LANGUAGE_LABELS[language]}
             </p>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -536,7 +538,7 @@ export default function CodingInterview({ onNavigate }: CodingInterviewProps) {
                     <ul className="space-y-1">
                       {question.constraints.map((constraint) => (
                         <li key={constraint} className="text-xs text-[var(--text-secondary)] flex gap-2">
-                          <span className="text-[var(--accent-from)]">•</span>
+                          <span className="text-[var(--accent-from)]">â€¢</span>
                           <span className="font-mono">{constraint}</span>
                         </li>
                       ))}
@@ -628,10 +630,10 @@ export default function CodingInterview({ onNavigate }: CodingInterviewProps) {
                           </Badge>
                         </div>
                         <p className="text-xs text-[var(--text-secondary)] mt-1">
-                          {row.accepted} accepted · {row.partial} partial · {row.wrong} unsuccessful · {row.hintsUsed} hints
+                          {row.accepted} accepted Â· {row.partial} partial Â· {row.wrong} unsuccessful Â· {row.hintsUsed} hints
                         </p>
                         <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                          {row.attempts} attempt{row.attempts === 1 ? '' : 's'} · last outcome {row.lastOutcome ?? 'none'}
+                          {row.attempts} attempt{row.attempts === 1 ? '' : 's'} Â· last outcome {row.lastOutcome ?? 'none'}
                         </p>
                       </div>
                     ))

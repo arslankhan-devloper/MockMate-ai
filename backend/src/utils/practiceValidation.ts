@@ -45,6 +45,111 @@ export const PRACTICE_MAX_SECONDS = 3600
 
 const MAX_LABEL = 120
 
+// Curated, server-owned taxonomy for the empty-bank flow. The practice hub merges
+// this static knowledge with the live database counts, so a branch or aptitude
+// topic with zero stored questions still shows up as a selectable, generatable
+// target instead of an empty bank. Nothing here invents questions; it only names
+// subjects and topics the AI may be asked to author.
+export interface PracticeTaxonomySubject {
+  name: string
+  topics: readonly string[]
+}
+
+export interface PracticeTaxonomyBranch {
+  id: PracticeBranchId
+  subjects: readonly PracticeTaxonomySubject[]
+}
+
+export const PRACTICE_BRANCH_TAXONOMY: readonly PracticeTaxonomyBranch[] = [
+  {
+    id: 'cse',
+    subjects: [
+      { name: 'Data Structures', topics: ['Arrays', 'Linked Lists', 'Trees', 'Graphs', 'Heaps'] },
+      { name: 'Algorithms', topics: ['Sorting', 'Searching', 'Dynamic Programming', 'Graph Algorithms', 'Greedy Algorithms'] },
+      { name: 'DBMS', topics: ['Normalization', 'Indexing', 'Transactions', 'ER Diagrams'] },
+      { name: 'Operating Systems', topics: ['Processes', 'Threads', 'Memory Management', 'File Systems', 'Scheduling'] },
+      { name: 'Computer Networks', topics: ['TCP/IP', 'HTTP', 'DNS', 'Routing', 'Subnetting'] },
+      { name: 'Software Engineering', topics: ['Agile', 'Testing', 'Design Patterns', 'CI/CD', 'Estimation'] },
+    ],
+  },
+  {
+    id: 'it',
+    subjects: [
+      { name: 'Networking', topics: ['TCP/IP', 'DNS', 'HTTP', 'Routing', 'Subnetting'] },
+      { name: 'Operating Systems', topics: ['Processes', 'Threads', 'Memory Management', 'File Systems', 'Scheduling'] },
+      { name: 'Databases', topics: ['SQL', 'Normalization', 'Indexing', 'Transactions'] },
+      { name: 'Programming', topics: ['Java', 'Python', 'C++', 'JavaScript', 'OOP'] },
+    ],
+  },
+  {
+    id: 'mechanical',
+    subjects: [
+      { name: 'Thermodynamics', topics: ['Laws of Thermodynamics', 'Heat Transfer', 'Internal Combustion Engines', 'Steam Cycles', 'Refrigeration'] },
+      { name: 'Mechanics', topics: ['Statics', 'Dynamics', 'Strength of Materials', 'Material Science', 'Friction and Bearings'] },
+      { name: 'Manufacturing', topics: ['Machining', 'Welding', 'Casting', 'CNC Machining', 'Quality Control'] },
+    ],
+  },
+  {
+    id: 'civil',
+    subjects: [
+      { name: 'Structural Engineering', topics: ['RCC Design', 'Steel Design', 'Structural Analysis', 'Foundation Design', 'Wind and Earthquake'] },
+      { name: 'Transportation Engineering', topics: ['Highway Design', 'Traffic Engineering', 'Pavement Design', 'Railway Engineering', 'Airport Engineering'] },
+      { name: 'Geotechnical Engineering', topics: ['Soil Mechanics', 'Foundation Engineering', 'Earth Retaining Structures', 'Slope Stability', 'Seepage'] },
+    ],
+  },
+  {
+    id: 'electrical',
+    subjects: [
+      { name: 'Circuit Analysis', topics: ['DC Circuits', 'AC Circuits', 'Transistors', 'Op-Amps', 'Kirchhoff Laws'] },
+      { name: 'Power Systems', topics: ['Load Flow', 'Protection', 'Transmission', 'Distribution', 'Substation'] },
+      { name: 'Electromagnetics', topics: ['Electromagnetic Theory', 'Antenna Theory', 'EMI', 'Wave Propagation', 'Fiber Optics'] },
+    ],
+  },
+  {
+    id: 'ece',
+    subjects: [
+      { name: 'Signals and Systems', topics: ['Fourier Analysis', 'Laplace Transforms', 'Sampling', 'Filter Design', 'Modulation'] },
+      { name: 'Communication Systems', topics: ['Digital Modulation', 'Error Correction', 'Information Theory', 'Satellite Communications', 'Telecom Protocols'] },
+    ],
+  },
+  {
+    id: 'ai-ds',
+    subjects: [
+      { name: 'Machine Learning', topics: ['Regression', 'Classification', 'Clustering', 'Deep Learning', 'NLP', 'Computer Vision'] },
+      { name: 'Data Science', topics: ['Statistics', 'Data Wrangling', 'Data Visualization', 'Experiment Design', 'Feature Engineering'] },
+    ],
+  },
+  {
+    id: 'other',
+    subjects: [
+      { name: 'General Engineering', topics: ['General Aptitude', 'General Science', 'Engineering Mathematics', 'Professional Communication'] },
+    ],
+  },
+]
+
+export const PRACTICE_APTITUDE_TOPICS: Readonly<Record<string, readonly string[]>> = {
+  'Quantitative Aptitude': [
+    'Percentages',
+    'Profit and Loss',
+    'Time and Work',
+    'Speed and Distance',
+    'Simple and Compound Interest',
+    'Averages',
+    'Permutations and Combinations',
+  ],
+  'Logical Reasoning': [
+    'Syllogisms',
+    'Blood Relations',
+    'Seating Arrangement',
+    'Number Series',
+    'Coding and Decoding',
+    'Statements and Assumptions',
+  ],
+  'Verbal Ability': ['Grammar', 'Vocabulary', 'Reading Comprehension', 'Fill in the Blanks', 'Spot the Error'],
+  'Data Interpretation': ['Pie Charts', 'Bar Charts', 'Line Charts', 'Tables', 'Caselets'],
+  'Puzzles': ['Logic Grid', 'Seating Puzzles', 'Scheduling Puzzles', 'Knights and Knaves', 'Grid Logic'],
+} as const
+
 export type FieldErrors = Record<string, string>
 
 export interface NormalizedPracticeSessionInput {

@@ -81,8 +81,14 @@ export default function LoginSelection({ onNavigate }: LoginSelectionProps) {
           </p>
         </div>
 
-        <div className="flex justify-center mt-6">
+        <div className="flex flex-col items-center gap-3 mt-6">
           <Badge variant="info">Accounts secured by Supabase Auth</Badge>
+          <button
+            onClick={() => onNavigate('admin-login' as any)}
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+          >
+            Super Administrator Portal →
+          </button>
         </div>
       </div>
     </div>

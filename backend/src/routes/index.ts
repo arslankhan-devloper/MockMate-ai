@@ -1,9 +1,12 @@
 import type { Express } from 'express'
 import { accountRouter } from './account.routes.js'
+import { adminRouter } from './admin.routes.js'
+import { analyticsRouter } from './analytics.routes.js'
 import { applicationsRouter } from './applications.routes.js'
 import { healthRouter } from './health.routes.js'
 import { interviewsRouter } from './interviews.routes.js'
 import { jobsRouter } from './jobs.routes.js'
+import { officerAuthRouter } from './officerAuth.routes.js'
 import { practiceRouter } from './practice.routes.js'
 import { problemSolvingRouter } from './problemSolving.routes.js'
 import { profileRouter } from './profile.routes.js'
@@ -18,7 +21,9 @@ import { roadmapRouter } from './roadmap.routes.js'
 export function registerRoutes(app: Express): void {
   app.use('/api/health', healthRouter)
   app.use('/api/account', accountRouter)
+  app.use('/api/officer-auth', officerAuthRouter)
   app.use('/api/profile', profileRouter)
+  app.use('/api/analytics', analyticsRouter)
   app.use('/api/jobs', jobsRouter)
   app.use('/api/applications', applicationsRouter)
   app.use('/api/resume', resumeRouter)
@@ -26,4 +31,5 @@ export function registerRoutes(app: Express): void {
   app.use('/api/interviews', interviewsRouter)
   app.use('/api/problem-solving', problemSolvingRouter)
   app.use('/api/practice', practiceRouter)
+  app.use('/api/admin', adminRouter)
 }

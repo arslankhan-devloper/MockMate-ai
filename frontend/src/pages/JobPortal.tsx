@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+﻿import { useState, type FormEvent } from 'react'
 import {
   Building2, CheckCircle2, Sparkles, FileText, Search, SearchX,
   SlidersHorizontal, MapPin, GraduationCap, X, Trash2,
@@ -16,6 +16,7 @@ import {
   formatExternalFetchedAt, formatExternalPosted,
 } from '../data/externalJobs'
 import type { MutationResult } from '../hooks/useCampusJobs'
+import { notifyAnalyticsUpdated } from '../lib/analyticsFormat'
 import { useExternalJobs } from '../hooks/useExternalJobs'
 
 type Page = 'roadmap' | 'resume'
@@ -47,7 +48,7 @@ function externalJobSkills(category: string | null): string[] {
   return [
     ...new Set(
       category
-        .split(/\s*[·,;|]\s*/)
+        .split(/\s*[Â·,;|]\s*/)
         .map(skill => skill.trim())
         .filter(Boolean),
     ),
@@ -114,6 +115,7 @@ export default function JobPortal({
     setApplyingId(null)
     if (result.ok) {
       setJustApplied(job.id)
+      notifyAnalyticsUpdated()
     } else {
       setActionError(result.error ?? 'Could not submit your application.')
     }
@@ -206,7 +208,7 @@ export default function JobPortal({
 
         {appsLoading && applications.length === 0 ? (
           <Card className="p-6 flex items-center justify-center gap-2 text-sm text-[var(--text-secondary)]">
-            <Loader2 size={15} className="animate-spin text-[var(--accent-from)]" /> Loading your applications…
+            <Loader2 size={15} className="animate-spin text-[var(--accent-from)]" /> Loading your applicationsâ€¦
           </Card>
         ) : applications.length === 0 ? (
           <Card className="p-6 flex flex-col items-center text-center gap-2 py-10">
@@ -229,7 +231,7 @@ export default function JobPortal({
                     <Badge variant={appStatusVariant(app.status)}>{app.status}</Badge>
                   </div>
                   <p className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-                    <Building2 size={11} /> {app.job ? `${app.job.company} · ${app.job.location}` : 'This drive is no longer listed.'}
+                    <Building2 size={11} /> {app.job ? `${app.job.company} Â· ${app.job.location}` : 'This drive is no longer listed.'}
                   </p>
                   <p className="text-[11px] text-[var(--text-muted)] mt-1">
                     Applied {new Date(app.appliedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
@@ -304,7 +306,7 @@ export default function JobPortal({
 
         {jobsLoading && campusJobs.length === 0 ? (
           <Card className="p-6 flex items-center justify-center gap-2 text-sm text-[var(--text-secondary)]">
-            <Loader2 size={15} className="animate-spin text-[var(--accent-from)]" /> Loading campus drives…
+            <Loader2 size={15} className="animate-spin text-[var(--accent-from)]" /> Loading campus drivesâ€¦
           </Card>
         ) : campusJobs.length === 0 ? (
           <Card className="p-6 flex flex-col items-center text-center gap-3 py-14">
@@ -366,7 +368,7 @@ export default function JobPortal({
                       <GraduationCap size={12} className="text-[var(--accent-from)]" />
                       <span className="text-xs font-semibold text-[var(--text-primary)]">Eligibility</span>
                     </div>
-                    <p className="text-[11px] text-[var(--text-secondary)] mb-2">Minimum CGPA {j.minCgpa} · {j.allowedBacklogs} backlog(s) allowed</p>
+                    <p className="text-[11px] text-[var(--text-secondary)] mb-2">Minimum CGPA {j.minCgpa} Â· {j.allowedBacklogs} backlog(s) allowed</p>
                     <div className="flex flex-wrap gap-1.5">
                       {j.branches.map(b => <Badge key={b} variant="default">{b}</Badge>)}
                     </div>
@@ -374,7 +376,7 @@ export default function JobPortal({
 
                   <div className="p-3 rounded-[var(--radius-md)] bg-[var(--surface)] border border-[var(--border)] mb-4">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">Placement drive</p>
-                    <p className="text-[11px] text-[var(--text-secondary)] flex items-center gap-1.5"><CalendarClock size={12} className="text-[var(--text-muted)]" /> {formatDate(j.driveDate)} · {formatTime(j.driveTime)}</p>
+                    <p className="text-[11px] text-[var(--text-secondary)] flex items-center gap-1.5"><CalendarClock size={12} className="text-[var(--text-muted)]" /> {formatDate(j.driveDate)} Â· {formatTime(j.driveTime)}</p>
                     <p className="text-[11px] text-[var(--text-secondary)] flex items-center gap-1.5 mt-1"><MapPin size={12} className="text-[var(--text-muted)]" /> {j.driveVenue}</p>
                   </div>
 
@@ -420,12 +422,12 @@ export default function JobPortal({
               </p>
             </div>
           </div>
-          <Badge variant="default">External · Not employer-posted</Badge>
+          <Badge variant="default">External Â· Not employer-posted</Badge>
         </div>
 
         {external.loading && !external.loaded ? (
           <Card className="p-6 flex items-center justify-center gap-2 text-sm text-[var(--text-secondary)]">
-            <Loader2 size={15} className="animate-spin text-[var(--accent-from)]" /> Loading external jobs…
+            <Loader2 size={15} className="animate-spin text-[var(--accent-from)]" /> Loading external jobsâ€¦
           </Card>
         ) : externalProviderError ? (
           <Card className="p-6 space-y-4">
@@ -490,8 +492,8 @@ export default function JobPortal({
               <div className="flex items-center justify-between flex-wrap gap-2 mt-4">
                 <span className="text-xs text-[var(--text-muted)]">
                   {external.loading
-                    ? 'Updating external jobs…'
-                    : `${external.jobs.length} external ${external.jobs.length === 1 ? 'role' : 'roles'} loaded${externalApproxTotal !== null ? ` · ~${externalApproxTotal} matches` : ''}${external.data ? ` · updated ${formatExternalFetchedAt(external.data.fetchedAt)}` : ''}`}
+                    ? 'Updating external jobsâ€¦'
+                    : `${external.jobs.length} external ${external.jobs.length === 1 ? 'role' : 'roles'} loaded${externalApproxTotal !== null ? ` Â· ~${externalApproxTotal} matches` : ''}${external.data ? ` Â· updated ${formatExternalFetchedAt(external.data.fetchedAt)}` : ''}`}
                 </span>
                 <div className="flex items-center gap-2">
                   {external.data?.cached && <Badge variant="default">Cached</Badge>}
@@ -675,7 +677,7 @@ export default function JobPortal({
                   <div className="w-11 h-11 rounded-[var(--radius-sm)] gradient-bg flex items-center justify-center text-base font-bold text-white flex-shrink-0">{campusSelected.company[0]}</div>
                   <div className="min-w-0">
                     <p className="font-extrabold text-[var(--text-primary)] truncate">{campusSelected.title}</p>
-                    <p className="text-[11px] text-[var(--text-muted)] truncate">{campusSelected.company} · {campusSelected.location}</p>
+                    <p className="text-[11px] text-[var(--text-muted)] truncate">{campusSelected.company} Â· {campusSelected.location}</p>
                   </div>
                 </div>
                 <button onClick={() => setCampusSelected(null)} aria-label="Close details" className="w-8 h-8 rounded-[var(--radius-sm)] flex items-center justify-center text-[var(--text-muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-from)] transition-all-smooth flex-shrink-0">

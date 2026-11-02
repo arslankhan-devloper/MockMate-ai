@@ -38,10 +38,27 @@ export interface ParsedHash {
 
 export function parseHash(hash: string): ParsedHash {
   const raw = hash.replace(/^#\/?/, '').trim()
-  if (!raw) return { page: '', param: '' }
+  if (!raw) {
+    if (typeof window !== 'undefined') {
+      const pathname = window.location.pathname.replace(/^\/+|\/+$/g, '')
+      if (pathname === 'admin/login' || pathname === 'admin') {
+        return { page: 'admin-login', param: '' }
+      }
+    }
+    return { page: '', param: '' }
+  }
   const separator = raw.indexOf('/')
-  if (separator === -1) return { page: raw, param: '' }
-  return { page: raw.slice(0, separator), param: raw.slice(separator + 1) }
+  if (separator === -1) {
+    if (raw === 'admin') return { page: 'admin-login', param: '' }
+    return { page: raw, param: '' }
+  }
+  const prefix = raw.slice(0, separator)
+  const rest = raw.slice(separator + 1)
+  if (prefix === 'admin') {
+    if (rest === 'login') return { page: 'admin-login', param: '' }
+    return { page: `admin-${rest}`, param: '' }
+  }
+  return { page: prefix, param: rest }
 }
 
 export function pageFromHash(hash: string): string {
@@ -49,6 +66,13 @@ export function pageFromHash(hash: string): string {
 }
 
 export function hashForPage(page: string, param?: string): string {
+  if (page === 'admin-login') {
+    return param ? `#/admin/login/${param}` : `#/admin/login`
+  }
+  if (page.startsWith('admin-')) {
+    const sub = page.slice(6)
+    return param ? `#/admin/${sub}/${param}` : `#/admin/${sub}`
+  }
   return param ? `#/${page}/${param}` : `#/${page}`
 }
 

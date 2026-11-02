@@ -45,7 +45,14 @@ function promptKey(category: string, topic: string, prompt: string): string {
     .digest('hex')
 }
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(target: PracticeGenerationTarget): string {
+  const branchField =
+    target.kind === 'branch_mcq' && target.branch ? `"branch": "${target.branch}",` : '"branch": null,'
+  const difficultyLine =
+    target.difficulty === 'mixed'
+      ? '- When the requested difficulty is mixed, write a balanced mix of easy, medium and hard questions and set each question difficulty to exactly one of those three values.'
+      : `- Repeat the requested difficulty (${target.difficulty}) verbatim.`
+
   return [
     'You are an exam author for engineering campus-placement practice tests.',
     'Create multiple-choice questions that match the requested branch/category, subject and topic exactly.',
@@ -56,14 +63,14 @@ function buildSystemPrompt(): string {
     '- Have exactly four options that are distinct and plausible; exactly one is correct.',
     '- Use 0-based correctIndex (0, 1, 2 or 3) pointing at the correct option.',
     '- Include a factual explanation (at least one full sentence) that justifies the correct answer.',
-    '- Repeat the requested category, topic, difficulty and branch verbatim.',
+    difficultyLine,
     '- Avoid duplicates of the questions listed as already existing.',
     '',
     'Return exactly this shape:',
     '{',
     '  "questions": [',
     '    {',
-    '      "branch": "cse",',
+    `      ${branchField}`,
     '      "category": "...",',
     '      "topic": "...",',
     '      "difficulty": "easy" | "medium" | "hard",',
@@ -90,9 +97,18 @@ function buildUserPrompt(target: PracticeGenerationTarget, count: number, avoid:
   }
   parts.push(`Category / subject: ${target.category}`)
   parts.push(`Topic: ${target.topic}`)
-  parts.push(`Difficulty: ${target.difficulty}`)
+  parts.push(
+    target.difficulty === 'mixed'
+      ? 'Difficulty: mixed - write a balanced mix of easy, medium and hard questions.'
+      : `Difficulty: ${target.difficulty}`,
+  )
   parts.push('')
   parts.push('Every question must use exactly this category, topic and difficulty.')
+  if (target.difficulty === 'mixed') {
+    parts.push(
+      'The batch must cover a balanced mix of easy, medium and hard questions; each question uses exactly one of those difficulties and none uses the literal value "mixed".',
+    )
+  }
   if (avoid.length > 0) {
     parts.push('')
     parts.push('DO NOT DUPLICATE OR LIGHTLY REWORD THESE EXISTING QUESTIONS')
@@ -141,6 +157,56 @@ function parseJsonContent(content: string): unknown {
   return undefined
 }
 
+const GROQ_ERROR_MESSAGE_MAX_LENGTH = 240
+
+interface GroqProviderErrorShape {
+  status: number
+  type: string
+  message: string
+}
+
+async function parseGroqError(response: Response): Promise<GroqProviderErrorShape> {
+  const shape: GroqProviderErrorShape = { status: response.status, type: 'unknown', message: '' }
+  let body: unknown
+  try {
+    body = await response.json()
+  } catch {
+    return shape
+  }
+  const error = (
+    typeof body === 'object' && body !== null && 'error' in body
+      ? (body as { error?: unknown }).error
+      : body
+  ) as { type?: unknown; message?: unknown } | null
+  if (typeof error?.type === 'string') shape.type = error.type
+  if (typeof error?.message === 'string') {
+    const raw = error.message
+    shape.message = raw.length > GROQ_ERROR_MESSAGE_MAX_LENGTH ? `${raw.slice(0, GROQ_ERROR_MESSAGE_MAX_LENGTH)}…` : raw
+  }
+  return shape
+}
+
+function providerErrorToGroqError(error: GroqProviderErrorShape): GroqError {
+  switch (error.status) {
+    case 429:
+      return new GroqError(429, 'ai_rate_limited', 'Question generation is busy. Please try again shortly.')
+    case 400:
+    case 404:
+      return new GroqError(502, 'ai_bad_request', 'The question generation request was rejected by the provider.')
+    case 401:
+    case 403:
+      return new GroqError(502, 'ai_auth_error', 'Question generation is temporarily unavailable. Please retry shortly.')
+    case 500:
+    case 501:
+    case 502:
+    case 503:
+    case 504:
+      return new GroqError(502, 'ai_provider_error', 'The question generation service is having trouble. Please retry shortly.')
+    default:
+      return new GroqError(502, 'ai_request_failed', 'The question generation service returned an error.')
+  }
+}
+
 async function requestBatch(
   target: PracticeGenerationTarget,
   count: number,
@@ -162,7 +228,7 @@ async function requestBatch(
         temperature: 0.6,
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: buildSystemPrompt() },
+          { role: 'system', content: buildSystemPrompt(target) },
           {
             role: 'user',
             content: [buildUserPrompt(target, count, avoid), correction].filter(Boolean).join('\n\n'),
@@ -175,19 +241,23 @@ async function requestBatch(
     if (err instanceof Error && err.name === 'AbortError') {
       throw new GroqError(504, 'ai_timeout', 'Question generation timed out. Please try again.')
     }
+    console.error('[mockmate-backend] groq request failed', {
+      status: 'network',
+      errorName: err instanceof Error ? err.name : 'unknown',
+    })
     throw new GroqError(502, 'ai_request_failed', 'Could not reach the question generation service.')
   } finally {
     clearTimeout(timer)
   }
 
   if (!response.ok) {
-    if (response.status === 429) {
-      throw new GroqError(429, 'ai_rate_limited', 'Question generation is busy. Please try again shortly.')
-    }
-    if (response.status === 401 || response.status === 403) {
-      throw new GroqError(502, 'ai_auth_error', 'Question generation is temporarily unavailable.')
-    }
-    throw new GroqError(502, 'ai_request_failed', 'The question generation service returned an error.')
+    const providerError = await parseGroqError(response)
+    console.error('[mockmate-backend] groq provider error', {
+      status: providerError.status,
+      type: providerError.type,
+      message: providerError.message,
+    })
+    throw providerErrorToGroqError(providerError)
   }
 
   let payload: unknown

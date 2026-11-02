@@ -290,6 +290,12 @@ export function practiceErrorCopy(status: number, code: string, message: string)
   if (code === 'ai_rate_limited' || code === 'practice_generation_rate_limited') {
     return 'Question generation is busy right now. Wait a moment and retry.'
   }
+  if (code === 'ai_bad_request') {
+    return 'The question generation service rejected this request. Retry shortly.'
+  }
+  if (code === 'ai_provider_error') {
+    return 'The question generation service is having trouble. Retry shortly.'
+  }
   if (code === 'ai_timeout') return 'Question generation took too long. Retry to finish building the set.'
   if (code === 'ai_invalid_response') {
     return 'The generated questions could not be validated. Retry - nothing invalid was saved.'

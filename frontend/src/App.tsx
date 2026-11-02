@@ -22,7 +22,16 @@ import Profile from './pages/Profile'
 import OfficerProfile from './pages/OfficerProfile'
 import ProfileSetup from './pages/ProfileSetup'
 import Settings from './pages/Settings'
+import AdminLogin from './pages/AdminLogin'
+import AdminDashboard from './pages/AdminDashboard'
+import AdminColleges from './pages/AdminColleges'
+import AdminOfficers from './pages/AdminOfficers'
+import AdminStudents from './pages/AdminStudents'
+import AdminDrives from './pages/AdminDrives'
+import AdminAuditLogs from './pages/AdminAuditLogs'
+import AdminAnalytics from './pages/AdminAnalytics'
 import Layout, { type Role } from './components/Layout'
+import AdminLayout, { type AdminPage } from './components/AdminLayout'
 import { Button, Card } from './components/ui'
 import { BrainCircuit, Loader2, RefreshCw, LogOut, ShieldAlert } from 'lucide-react'
 import { useAuth } from './lib/auth'
@@ -51,12 +60,14 @@ import {
 // the `Page` type and the set of hash routes the router accepts.
 const PAGES = [
   'landing', 'login-selection', 'login', 'signup', 'forgot',
-  'officer-login',
+  'officer-login', 'admin-login',
   'dashboard', 'resume', 'interview-setup', 'ai-interview',
   'coding-interview', 'problem-solving', 'practice',
   'report', 'roadmap', 'analytics',
   'placement-cell', 'job-posting', 'job-portal', 'profile-setup',
   'officer-profile', 'profile', 'settings',
+  'admin-dashboard', 'admin-colleges', 'admin-officers',
+  'admin-students', 'admin-drives', 'admin-audit-logs', 'admin-analytics',
 ] as const
 
 type Page = (typeof PAGES)[number]
@@ -66,13 +77,13 @@ const fullscreenPages: Page[] = ['ai-interview', 'coding-interview']
 // Pages reachable while signed out. Everything else requires an authenticated
 // session restored from Supabase.
 const AUTH_PAGES: Page[] = [
-  'landing', 'login-selection', 'login', 'signup', 'forgot', 'officer-login',
+  'landing', 'login-selection', 'login', 'signup', 'forgot', 'officer-login', 'admin-login',
 ]
 
 // Entry pages a signed-in user should be routed away from. `officer-login` is
 // intentionally omitted so the officer form can still surface a role error.
 const SIGNED_IN_REDIRECT_PAGES: Page[] = [
-  'landing', 'login-selection', 'login', 'signup', 'forgot',
+  'landing', 'login-selection', 'login', 'signup', 'forgot', 'admin-login',
 ]
 
 // Remember where a signed-out user was trying to go so they can be returned
@@ -196,6 +207,7 @@ export default function App() {
   const dark = resolveThemeDark(themeMode, systemDark)
   // The active role is derived from the database profile — never from a user
   // selection. Signing out falls back to the student role for display only.
+  const isSuperAdmin = authProfile?.role === 'super_admin'
   const role: Role = authProfile?.role === 'placement-officer' ? 'placement-officer' : 'student'
   // In-memory profile form data per role. Seeded with the authenticated user's
   // name/email, then merged with the persisted profile from the backend.
@@ -325,7 +337,16 @@ export default function App() {
   useEffect(() => {
     if (initializing) return
     if (signedIn) {
-      if (SIGNED_IN_REDIRECT_PAGES.includes(page)) {
+      if (isSuperAdmin) {
+        if (SIGNED_IN_REDIRECT_PAGES.includes(page) || page === 'officer-login' || !page.startsWith('admin-')) {
+          navigate('admin-dashboard', { replace: true })
+        }
+      } else if (page.startsWith('admin-')) {
+        navigate(role === 'student' ? 'dashboard' : 'placement-cell', { replace: true })
+      } else if (authProfile?.role === 'placement-officer' && authProfile.approvalStatus !== 'approved') {
+        void signOut()
+        navigate('officer-login', { replace: true })
+      } else if (SIGNED_IN_REDIRECT_PAGES.includes(page)) {
         const returnTo = consumeReturnTo()
         if (returnTo) {
           navigate(returnTo.page, { replace: true, param: returnTo.param })
@@ -339,11 +360,12 @@ export default function App() {
       rememberReturnTo(page, routeParam)
       navigate('landing', { replace: true })
     }
-  }, [initializing, signedIn, page, routeParam, role, navigate])
+  }, [initializing, signedIn, page, routeParam, role, isSuperAdmin, authProfile, navigate, signOut])
 
   // Server-derived guards: keep students out of officer-only routes, and keep
   // placement officers out of the student-only roadmap.
   useEffect(() => {
+    if (isSuperAdmin) return
     if ((page === 'placement-cell' || page === 'job-posting' || page === 'officer-profile') && role !== 'placement-officer') {
       navigate('dashboard', { replace: true })
       return
@@ -355,7 +377,7 @@ export default function App() {
     if (page === 'roadmap' && role !== 'student') {
       navigate('placement-cell', { replace: true })
     }
-  }, [page, role, navigate])
+  }, [page, role, isSuperAdmin, navigate])
 
   // After login, show the (optional) profile setup step once, if the active
   // profile is not complete and the user has not skipped it this session.
@@ -471,6 +493,47 @@ export default function App() {
     return <SessionLoadingScreen dark={dark} label="Preparing your account…" />
   }
 
+  // Super Admin control plane
+  if (signedIn && isSuperAdmin) {
+    const adminPage = page.startsWith('admin-') && page !== 'admin-login'
+      ? (page as AdminPage)
+      : 'admin-dashboard'
+
+    return (
+      <div className={dark ? 'dark' : ''} style={{ background: 'var(--bg)', minHeight: '100dvh' }}>
+        <AdminLayout
+          page={adminPage}
+          onNavigate={p => navigate(p)}
+          dark={dark}
+          onToggleDark={toggleDark}
+          onLogout={() => { void logout() }}
+          adminEmail={authProfile?.email || user?.email || 'admin@mockmate.ai'}
+          adminName={authProfile?.fullName || 'Super Administrator'}
+        >
+          {adminPage === 'admin-dashboard' && <AdminDashboard onNavigate={p => navigate(p)} />}
+          {adminPage === 'admin-colleges' && <AdminColleges />}
+          {adminPage === 'admin-officers' && <AdminOfficers />}
+          {adminPage === 'admin-students' && <AdminStudents />}
+          {adminPage === 'admin-drives' && <AdminDrives />}
+          {adminPage === 'admin-audit-logs' && <AdminAuditLogs />}
+          {adminPage === 'admin-analytics' && <AdminAnalytics />}
+        </AdminLayout>
+      </div>
+    )
+  }
+
+  // Admin login page
+  if (page === 'admin-login') {
+    return (
+      <div className={dark ? 'dark' : ''} style={{ background: 'var(--bg)', minHeight: '100dvh' }}>
+        <AdminLogin
+          onLoginSuccess={() => navigate('admin-dashboard', { replace: true })}
+          onNavigateHome={() => navigate('landing', { replace: true })}
+        />
+      </div>
+    )
+  }
+
   // Full-screen pages (no sidebar layout)
   if (fullscreenPages.includes(page)) {
     return (
@@ -521,7 +584,7 @@ export default function App() {
 
   // App pages (with sidebar layout)
   return (
-    <Layout page={page} onNavigate={nav} dark={dark} onToggleDark={toggleDark} role={role} onLogout={() => { void logout() }} userName={userLabel} userEmail={userEmail}>
+    <Layout page={page as any} onNavigate={nav as any} dark={dark} onToggleDark={toggleDark} role={role} onLogout={() => { void logout() }} userName={userLabel} userEmail={userEmail}>
       {page === 'dashboard' && (
         <Dashboard
           onNavigate={nav}

@@ -192,6 +192,16 @@ test('selection totals respect subject, topic and difficulty filters', () => {
   assert.equal(practiceSelectionTotal(null, '', '', 'mixed'), 0)
 })
 
+test('zero-count topics stay selectable and drive the AI generation path', () => {
+  const value = catalog([
+    category('DBMS', [{ name: 'Normalization', easy: 0, medium: 0, hard: 0 }]),
+  ])
+
+  assert.equal(practiceSelectionTotal(value, 'DBMS', 'Normalization', 'mixed'), 0)
+  assert.equal(practiceSelectionTotal(value, 'DBMS', 'Normalization', 'easy'), 0)
+  assert.equal(practiceSelectionTotal(value, 'DBMS', '', 'mixed'), 0)
+})
+
 test('answer navigation skips answered questions and never exposes an answer', () => {
   const unanswered = question({ id: 'q2', position: 1 })
   const view = sessionView([
@@ -244,6 +254,18 @@ test('error copy reports generation problems without pretending success', () => 
   )
   assert.match(
     practiceErrorCopy(502, 'ai_request_failed', 'Down'),
+    /temporarily unavailable/,
+  )
+  assert.match(
+    practiceErrorCopy(502, 'ai_bad_request', 'Rejected'),
+    /rejected this request/,
+  )
+  assert.match(
+    practiceErrorCopy(502, 'ai_provider_error', 'Upstream'),
+    /is having trouble/,
+  )
+  assert.match(
+    practiceErrorCopy(502, 'ai_auth_error', 'Auth'),
     /temporarily unavailable/,
   )
 })

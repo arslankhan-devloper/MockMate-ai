@@ -47,6 +47,13 @@ function groqResponse(content: unknown): Response {
   )
 }
 
+function groqErrorResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 interface FakeBankRow {
   id: string
   category: string
@@ -154,12 +161,85 @@ test('rejects a batch that duplicates an existing bank question', () => {
   assert.equal(result.ok, false)
 })
 
-test('rejects duplicates inside one generated batch', () => {
+test('rejects duplicates inside one generated batch individually while accepting unique ones', () => {
   const result = validateGeneratedQuestions(
     { questions: [question(), question({ prompt: 'Which  normal form removes  partial dependency on a composite key?' })] },
     target,
   )
+  assert.equal(result.ok, true)
+  assert.equal(result.value.length, 1)
+  assert.equal(result.rejected, 1)
+  assert.ok(result.errors.some((err) => /duplicate/i.test(err)))
+})
+
+test('fails a batch where every question is rejected as a duplicate', () => {
+  const existingKey = practiceQuestionKey(
+    String(question().category),
+    String(question().topic),
+    String(question().prompt),
+  )
+  const result = validateGeneratedQuestions(
+    {
+      questions: [
+        question(),
+        question({ prompt: 'Which  normal form removes  partial dependency on a composite key?' }),
+      ],
+    },
+    target,
+    new Set([existingKey]),
+  )
   assert.equal(result.ok, false)
+  assert.equal(result.rejected, 2)
+})
+
+test('mixed difficulty accepts easy medium or hard and never the literal mixed value', () => {
+  const mixedTarget = { ...target, difficulty: 'mixed' as const }
+  const accepted = validateGeneratedQuestions({ questions: [question()] }, mixedTarget)
+  assert.equal(accepted.ok, true)
+  const rejected = validateGeneratedQuestions({ questions: [question({ difficulty: 'mixed' })] }, mixedTarget)
+  assert.equal(rejected.ok, false)
+})
+
+test('mixed difficulty prompts ask for a balanced mix and never return the literal value', async () => {
+  const { client } = fakeBankClient()
+  const fetchMock = useFetchSequence([() => groqResponse({ questions: [question()] })])
+  try {
+    const result = await generatePracticeQuestions(client as never, { ...target, difficulty: 'mixed' }, 1, () => 0)
+    assert.equal(result.stored, 1)
+    const body = JSON.parse(fetchMock.calls[0]) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const system = body.messages.find((message) => message.role === 'system')?.content ?? ''
+    const user = body.messages.find((message) => message.role === 'user')?.content ?? ''
+    assert.equal(system.includes('"difficulty": "mixed"'), false)
+    assert.equal(system.includes('"difficulty": "easy" | "medium" | "hard"'), true)
+    assert.match(system, /balanced mix/i)
+    assert.match(user, /balanced mix/i)
+  } finally {
+    fetchMock.restore()
+  }
+})
+
+test('does not start AI generation without a concrete topic', async () => {
+  const stored = [bankQuestion('q1')]
+  const { client } = sessionClient(stored)
+  const parsed = validatePracticeSession({
+    kind: 'aptitude',
+    category: 'Quantitative Aptitude',
+    count: 5,
+  })
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) return
+
+  let called = false
+  const result = await createPracticeSession(client as never, 'student-1', parsed.value, {
+    generate: async () => {
+      called = true
+      return { requested: 0, reused: 0, generated: 0, stored: 0 }
+    },
+  })
+  assert.equal(called, false)
+  assert.equal(result.ok, true)
 })
 
 test('retries invalid generation and stores only validated questions', async () => {
@@ -191,6 +271,140 @@ test('gives up after the retry budget and stores nothing', async () => {
     assert.equal(inserted.length, 0)
     // One attempt plus the configured retries, never more.
     assert.equal(fetchMock.calls.length, 1 + PRACTICE_GENERATION_MAX_RETRIES)
+  } finally {
+    fetchMock.restore()
+  }
+})
+
+test('maps a Groq rate limit to the stable rate limit error', async () => {
+  const { client } = fakeBankClient()
+  const fetchMock = useFetchSequence([
+    () => groqErrorResponse(429, { error: { type: 'rate_limit', message: 'Too many requests, slow down.' } }),
+  ])
+  try {
+    await assert.rejects(
+      generatePracticeQuestions(client as never, target, 1, () => 0),
+      (error: unknown) => {
+        assert.equal(error instanceof GroqError, true)
+        assert.equal((error as { code?: string }).code, 'ai_rate_limited')
+        return true
+      },
+    )
+  } finally {
+    fetchMock.restore()
+  }
+})
+
+test('maps a Groq bad request to the stable bad request error', async () => {
+  const { client } = fakeBankClient()
+  const fetchMock = useFetchSequence([
+    () => groqErrorResponse(400, { error: { type: 'invalid_request_error', message: 'Prompt rejected.' } }),
+  ])
+  try {
+    await assert.rejects(
+      generatePracticeQuestions(client as never, target, 1, () => 0),
+      (error: unknown) => {
+        assert.equal(error instanceof GroqError, true)
+        assert.equal((error as { code?: string }).code, 'ai_bad_request')
+        return true
+      },
+    )
+  } finally {
+    fetchMock.restore()
+  }
+})
+
+test('maps a Groq model not found error to the stable bad request error', async () => {
+  const { client } = fakeBankClient()
+  const fetchMock = useFetchSequence([
+    () => groqErrorResponse(404, { error: { type: 'model_not_found', message: 'Model missing.' } }),
+  ])
+  try {
+    await assert.rejects(
+      generatePracticeQuestions(client as never, target, 1, () => 0),
+      (error: unknown) => {
+        assert.equal(error instanceof GroqError, true)
+        assert.equal((error as { code?: string }).code, 'ai_bad_request')
+        return true
+      },
+    )
+  } finally {
+    fetchMock.restore()
+  }
+})
+
+test('maps a Groq auth failure to the stable auth error', async () => {
+  const { client } = fakeBankClient()
+  const fetchMock = useFetchSequence([
+    () => groqErrorResponse(401, { error: { type: 'unauthorized', message: 'Bad key.' } }),
+  ])
+  try {
+    await assert.rejects(
+      generatePracticeQuestions(client as never, target, 1, () => 0),
+      (error: unknown) => {
+        assert.equal(error instanceof GroqError, true)
+        assert.equal((error as { code?: string }).code, 'ai_auth_error')
+        return true
+      },
+    )
+  } finally {
+    fetchMock.restore()
+  }
+})
+
+test('maps a Groq server error to the stable provider error', async () => {
+  const { client } = fakeBankClient()
+  const fetchMock = useFetchSequence([
+    () => groqErrorResponse(503, { error: { type: 'internal_error', message: 'Upstream exploded.' } }),
+  ])
+  try {
+    await assert.rejects(
+      generatePracticeQuestions(client as never, target, 1, () => 0),
+      (error: unknown) => {
+        assert.equal(error instanceof GroqError, true)
+        assert.equal((error as { code?: string }).code, 'ai_provider_error')
+        return true
+      },
+    )
+  } finally {
+    fetchMock.restore()
+  }
+})
+
+test('a non-JSON provider error body still maps by status code', async () => {
+  const { client } = fakeBankClient()
+  const fetchMock = useFetchSequence([
+    () => new Response('<html>upstream down</html>', { status: 503, headers: { 'Content-Type': 'text/html' } }),
+  ])
+  try {
+    await assert.rejects(
+      generatePracticeQuestions(client as never, target, 1, () => 0),
+      (error: unknown) => {
+        assert.equal(error instanceof GroqError, true)
+        assert.equal((error as { code?: string }).code, 'ai_provider_error')
+        return true
+      },
+    )
+  } finally {
+    fetchMock.restore()
+  }
+})
+
+test('an unmapped provider status falls back to a stable request failure', async () => {
+  const { client } = fakeBankClient()
+  const fetchMock = useFetchSequence([
+    () => groqErrorResponse(418, { error: { type: 'teapot', message: 'Short and stout.' } }),
+  ])
+  try {
+    await assert.rejects(
+      generatePracticeQuestions(client as never, target, 1, () => 0),
+      (error: unknown) => {
+        assert.equal(error instanceof GroqError, true)
+        assert.equal((error as { code?: string }).code, 'ai_request_failed')
+        assert.equal((error as { status?: number }).status, 502)
+        return true
+      },
+    )
   } finally {
     fetchMock.restore()
   }

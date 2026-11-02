@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Badge, Button, Card, ProgressBar } from '../components/ui'
 import { useAuth } from '../lib/auth'
+import { notifyAnalyticsUpdated } from '../lib/analyticsFormat'
 import {
   PRACTICE_APTITUDE_CATEGORIES,
   PRACTICE_BRANCHES,
@@ -238,6 +239,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
       setResult(completed)
       setResume(null)
       setResumeNonce((value) => value + 1)
+      notifyAnalyticsUpdated()
     } catch (err) {
       const message = describePracticeError(err)
       setAnswerError(message)
@@ -259,7 +261,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
     }
   }, [completing, finish, remainingSeconds, view?.session.mode])
 
-  const canGenerate = kind === 'aptitude' ? Boolean(category) : Boolean(topic || category)
+  const canGenerate = Boolean(category && topic)
   const canStart = !catalogLoading && !starting && (matchingTotal > 0 || canGenerate)
 
   const startSession = async () => {
@@ -267,8 +269,8 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
     if (matchingTotal === 0 && !canGenerate) {
       setStartError(
         kind === 'aptitude'
-          ? 'Choose an aptitude category first. AI can then generate questions for it.'
-          : 'Choose a subject or topic first. AI can then generate questions for it.',
+          ? 'Choose an aptitude category and topic first. AI can then generate questions for it.'
+          : 'Choose a subject and topic first. AI can then generate questions for it.',
       )
       return
     }
@@ -361,7 +363,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
 
   const heading = kind === 'aptitude' ? 'Aptitude & Reasoning' : 'Branch-wise MCQ Practice'
 
-  // ── Result screen ───────────────────────────────────────────────
+  // â”€â”€ Result screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (result) {
     const { session, questions } = result
     return (
@@ -382,7 +384,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
             <div>
               <h1 className="text-xl font-extrabold text-[var(--text-primary)]">Session complete</h1>
               <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                {heading} · {practiceDifficultyLabel(session.difficulty)} ·{' '}
+                {heading} Â· {practiceDifficultyLabel(session.difficulty)} Â·{' '}
                 {session.mode === 'timed' ? 'Timed' : 'Practice'} mode
               </p>
             </div>
@@ -447,7 +449,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
                           {question.options[question.answer.selectedIndex]}
                           {!question.answer.isCorrect ? (
                             <>
-                              {' '}· Correct: {OPTION_LETTERS[question.answer.correctIndex]}.{' '}
+                              {' '}Â· Correct: {OPTION_LETTERS[question.answer.correctIndex]}.{' '}
                               {question.options[question.answer.correctIndex]}
                             </>
                           ) : null}
@@ -478,7 +480,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
     )
   }
 
-  // ── Active session ──────────────────────────────────────────────
+  // â”€â”€ Active session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (view && currentQuestion) {
     const answer = currentQuestion.answer
     const answered = answeredQuestionCount(view)
@@ -516,7 +518,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
         <Card className="mb-4 p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-              {heading} · Question {view.questions.findIndex((question) => question.id === currentQuestion.id) + 1} of {view.questions.length}
+              {heading} Â· Question {view.questions.findIndex((question) => question.id === currentQuestion.id) + 1} of {view.questions.length}
             </p>
             <span className="text-[11px] text-[var(--text-muted)]">{progress}% answered</span>
           </div>
@@ -643,7 +645,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
     )
   }
 
-  // ── Catalog ─────────────────────────────────────────────────────
+  // â”€â”€ Catalog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const emptyBank = Boolean(catalog && catalog.total === 0)
   const noMatches = Boolean(catalog && catalog.total > 0 && matchingTotal === 0)
   const branchEmpty = Boolean(
@@ -659,7 +661,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
           <Card className="w-full max-w-md p-6">
             <div className="mb-3 flex items-center gap-2">
               <Loader2 size={20} className="animate-spin text-[var(--accent-from)]" />
-              <p className="text-sm font-extrabold text-[var(--text-primary)]">Generating questions…</p>
+              <p className="text-sm font-extrabold text-[var(--text-primary)]">Generating questionsâ€¦</p>
             </div>
             <p className="mb-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">
               Existing questions are reused first. Only missing questions are generated and
@@ -720,7 +722,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
           <div className="min-w-0">
             <p className="text-xs font-bold text-[var(--text-primary)]">Unfinished session</p>
             <p className="mt-0.5 text-[11px] text-[var(--text-secondary)]">
-              {resume.session.correctCount}/{resume.session.answeredCount} correct ·{' '}
+              {resume.session.correctCount}/{resume.session.answeredCount} correct Â·{' '}
               {resume.session.questionCount - resume.session.answeredCount} question(s) left
             </p>
           </div>
@@ -758,7 +760,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
       {catalogLoading ? (
         <Card className="p-8 text-center">
           <Loader2 size={24} className="mx-auto mb-2 animate-spin text-[var(--accent-from)]" />
-          <p className="text-xs text-[var(--text-muted)]">Loading the question catalog…</p>
+          <p className="text-xs text-[var(--text-muted)]">Loading the question catalogâ€¦</p>
         </Card>
       ) : null}
 
@@ -775,7 +777,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
                   : `No questions are available for ${practiceBranchLabel(branch)} yet`}
               </p>
               <p className="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-[var(--text-secondary)]">
-                The bank has no stored questions for this selection yet. Pick a subject or topic
+                The bank has no stored questions for this selection yet. Pick a subject and topic
                 and MockMate will generate validated questions with AI for it. Nothing is invented
                 to fill the space.
               </p>
@@ -876,7 +878,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
                                   : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent-from)]'
                               }`}
                             >
-                              {entryTopic.name} · {entryTopic.total}
+                              {entryTopic.name} Â· {entryTopic.total}
                             </button>
                           ))
                         )}
@@ -976,7 +978,7 @@ export default function PracticePage({ kind, studentBranch, onNavigate }: Practi
               </Button>
               {noMatches ? (
                 <p className="mt-2 text-[10px] leading-relaxed text-[var(--text-muted)]">
-                  No stored questions match these filters yet. AI generation needs a subject or
+                  No stored questions match these filters yet. AI generation needs a subject and
                   topic selection.
                 </p>
               ) : null}

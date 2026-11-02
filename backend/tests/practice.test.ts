@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Request, Response } from 'express'
 import {
+  PRACTICE_APTITUDE_TOPICS,
   PRACTICE_BRANCHES,
   validatePracticeAnswer,
   validatePracticeSession,
@@ -181,12 +182,27 @@ test('practice catalog aggregates topics and keeps empty canonical aptitude cate
     'cse',
   )
   assert.equal(branchCatalog.total, 2)
-  assert.equal(branchCatalog.categories.length, 1)
-  assert.equal(branchCatalog.categories[0].name, 'DBMS')
-  assert.equal(branchCatalog.categories[0].topics[0].name, 'Normalization')
-  assert.deepEqual(branchCatalog.categories[0].topics[0].counts, { easy: 1, medium: 0, hard: 1 })
+  // The curated taxonomy seeds every CSE subject, so stored counts overlay onto
+  // a full subject list instead of replacing it.
+  assert.equal(branchCatalog.categories.length, 6)
+  const dbms = branchCatalog.categories.find((entry) => entry.name === 'DBMS')
+  assert.ok(dbms)
+  assert.equal(dbms.total, 2)
+  const normalization = dbms.topics.find((entry) => entry.name === 'Normalization')
+  assert.ok(normalization)
+  assert.deepEqual(normalization.counts, { easy: 1, medium: 0, hard: 1 })
+  assert.equal(normalization.total, 2)
   assert.equal(branchCatalog.branches.find((branch) => branch.id === 'cse')?.total, 2)
   assert.equal(branchCatalog.branches.find((branch) => branch.id === 'mechanical')?.total, 1)
+
+  const algorithms = branchCatalog.categories.find((entry) => entry.name === 'Algorithms')
+  assert.ok(algorithms)
+  assert.equal(algorithms.total, 0)
+  assert.equal(algorithms.topics.length, 5)
+  for (const topic of algorithms.topics) {
+    assert.deepEqual(topic.counts, { easy: 0, medium: 0, hard: 0 })
+    assert.equal(topic.total, 0)
+  }
 
   const aptitudeCatalog = buildPracticeCatalog(
     [{ branch: null, category: 'Quantitative Aptitude', topic: 'Percentages', difficulty: 'easy' }],
@@ -196,7 +212,28 @@ test('practice catalog aggregates topics and keeps empty canonical aptitude cate
   assert.equal(aptitudeCatalog.categories.length, 5)
   assert.equal(aptitudeCatalog.categories[0].name, 'Quantitative Aptitude')
   assert.equal(aptitudeCatalog.categories[0].total, 1)
-  assert.ok(aptitudeCatalog.categories.some((category) => category.name === 'Puzzles' && category.total === 0))
+  const percentages = aptitudeCatalog.categories[0].topics.find((entry) => entry.name === 'Percentages')
+  assert.ok(percentages)
+  assert.deepEqual(percentages.counts, { easy: 1, medium: 0, hard: 0 })
+  assert.equal(percentages.total, 1)
+  const puzzles = aptitudeCatalog.categories.find((entry) => entry.name === 'Puzzles')
+  assert.ok(puzzles)
+  assert.equal(puzzles.total, 0)
+  assert.equal(puzzles.topics.length, PRACTICE_APTITUDE_TOPICS['Puzzles'].length)
+})
+
+test('empty branch bank still exposes curated subjects and zero-count topics', () => {
+  const catalog = buildPracticeCatalog([], 'branch_mcq', 'ai-ds')
+  assert.equal(catalog.kind, 'branch_mcq')
+  assert.equal(catalog.branch, 'ai-ds')
+  assert.equal(catalog.total, 0)
+  const machineLearning = catalog.categories.find((entry) => entry.name === 'Machine Learning')
+  assert.ok(machineLearning)
+  assert.equal(machineLearning.total, 0)
+  const deepLearning = machineLearning?.topics.find((entry) => entry.name === 'Deep Learning')
+  assert.ok(deepLearning)
+  assert.deepEqual(deepLearning?.counts, { easy: 0, medium: 0, hard: 0 })
+  assert.equal(deepLearning?.total, 0)
 })
 
 test('random question selection does not mutate input and is bounded', () => {

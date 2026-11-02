@@ -8,7 +8,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
+  PRACTICE_APTITUDE_TOPICS,
   PRACTICE_BRANCHES,
+  PRACTICE_BRANCH_TAXONOMY,
   PRACTICE_CATEGORIES,
   type PracticeBranchId,
   type PracticeDifficulty,
@@ -303,6 +305,28 @@ export function mapPracticeQuestionRow(
   }
 }
 
+interface StaticPracticeCategory {
+  name: string
+  topics: string[]
+}
+
+function staticCategoriesFor(kind: PracticeKind, branch: PracticeBranchId | null): StaticPracticeCategory[] {
+  if (kind === 'aptitude') {
+    // The five canonical aptitude categories ship with curated topics so an
+    // empty bank still renders selectable, zero-count topics.
+    return (PRACTICE_CATEGORIES as readonly string[]).map((name) => ({
+      name,
+      topics: [...(PRACTICE_APTITUDE_TOPICS[name] ?? [])],
+    }))
+  }
+  const selected = PRACTICE_BRANCH_TAXONOMY.find((entry) => entry.id === branch)
+  if (!selected) return []
+  // Branch subjects ship with curated topics; stored questions overlay real
+  // counts on top and keep adding any subject the bank knows that is not part of
+  // the curated set.
+  return selected.subjects.map((subject) => ({ name: subject.name, topics: [...subject.topics] }))
+}
+
 export function buildPracticeCatalog(
   rows: CatalogQuestionRow[],
   kind: PracticeKind,
@@ -323,12 +347,21 @@ export function buildPracticeCatalog(
     { counts: DifficultyCounts; total: number; topics: Map<string, { counts: DifficultyCounts; total: number }> }
   >()
 
-  const ensureCategory = (name: string) => {
+  const ensureCategory = (name: string, topics: string[] = []) => {
     const existing = categories.get(name)
     if (existing) return existing
     const created = { counts: emptyCounts(), total: 0, topics: new Map() }
     categories.set(name, created)
+    for (const topic of topics) {
+      if (!created.topics.has(topic)) created.topics.set(topic, { counts: emptyCounts(), total: 0 })
+    }
     return created
+  }
+
+  // Seed the curated static taxonomy first, then overlay the live bank so real
+  // questions win and empty curated topics keep their zero counts.
+  for (const entry of staticCategoriesFor(kind, kind === 'branch_mcq' ? branch : null)) {
+    ensureCategory(entry.name, entry.topics)
   }
 
   for (const row of filtered) {
@@ -464,8 +497,10 @@ export async function createPracticeSession(
   let generation: PracticeGenerationSummary | null = null
 
   // Reuse the real bank first. Only the shortfall is generated, and only when a
-  // concrete topic was chosen - a generated question must belong to one topic.
-  if (available.length < input.questionCount && options.generate && input.topic) {
+  // concrete topic AND subject were chosen - a generated question must belong to
+  // one topic and one subject. Stored-question practice keeps working without
+  // either because the bank query above already scopes it.
+  if (available.length < input.questionCount && options.generate && input.topic && input.category) {
     const target: PracticeGenerationTargetInput = {
       kind: input.kind,
       branch: input.branch,

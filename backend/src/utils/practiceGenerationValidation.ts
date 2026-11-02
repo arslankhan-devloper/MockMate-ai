@@ -42,8 +42,8 @@ export interface PracticeGenerationTarget {
 }
 
 export type PracticeGenerationValidation =
-  | { ok: true; value: GeneratedPracticeQuestion[] }
-  | { ok: false; error: string }
+  | { ok: true; value: GeneratedPracticeQuestion[]; rejected: number; errors: string[] }
+  | { ok: false; error: string; rejected: number; errors: string[] }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -168,9 +168,10 @@ function validateOne(
 
 /**
  * Validates a raw provider payload against the requested target and the prompt
- * keys already present in the bank. Returns only fully usable questions; any
- * invalid or duplicate entry fails the whole payload so the caller can retry
- * instead of saving a partial, unverified set.
+ * keys already present in the bank. Invalid or duplicate entries are rejected
+ * individually so one bad question cannot throw away the whole usable batch.
+ * The result still fails when no question survives validation. The caller can
+ * retry for the remaining shortfall and log the rejection count.
  */
 export function validateGeneratedQuestions(
   raw: unknown,
@@ -182,23 +183,44 @@ export function validateGeneratedQuestions(
     if (isPlainObject(raw) && Array.isArray(raw.questions)) return raw.questions
     return null
   })()
-  if (!list) return { ok: false, error: 'response did not contain a questions array' }
-  if (list.length === 0) return { ok: false, error: 'response contained no questions' }
+  if (!list) {
+    return { ok: false, error: 'response did not contain a questions array', rejected: 0, errors: [] }
+  }
+  if (list.length === 0) {
+    return { ok: false, error: 'response contained no questions', rejected: 0, errors: [] }
+  }
 
   const value: GeneratedPracticeQuestion[] = []
   const seen = new Set<string>()
+  const errors: string[] = []
+  let rejected = 0
 
   for (const item of list) {
     const parsed = validateOne(item, target)
-    if (!parsed.ok) return { ok: false, error: parsed.error }
+    if (!parsed.ok) {
+      rejected += 1
+      errors.push(parsed.error)
+      continue
+    }
 
     const key = practiceQuestionKey(parsed.value.category, parsed.value.topic, parsed.value.prompt)
     if (seen.has(key) || existingKeys.has(key)) {
-      return { ok: false, error: 'a generated question duplicates an existing question' }
+      rejected += 1
+      errors.push('a generated question duplicates an existing question')
+      continue
     }
     seen.add(key)
     value.push(parsed.value)
   }
 
-  return { ok: true, value }
+  if (value.length === 0) {
+    return {
+      ok: false,
+      error: errors[0] ?? 'response contained no usable questions',
+      rejected,
+      errors,
+    }
+  }
+
+  return { ok: true, value, rejected, errors }
 }

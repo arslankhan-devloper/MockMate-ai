@@ -21,11 +21,14 @@ import {
 import type { Session, User } from '@supabase/supabase-js'
 import { getSupabaseClient } from './supabase'
 
-export type ProfileRole = 'student' | 'placement-officer'
+export type ProfileRole = 'student' | 'placement-officer' | 'super_admin'
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
 
 export interface AuthProfile {
   id: string
   role: ProfileRole
+  approvalStatus: ApprovalStatus | null
+  rejectionReason: string | null
   collegeId: string | null
   fullName: string | null
   email: string | null
@@ -71,7 +74,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const PROFILE_COLUMNS = 'id, role, college_id, full_name, email'
+const PROFILE_COLUMNS = 'id, role, college_id, full_name, email, approval_status, rejection_reason'
 
 function normalizeError(err: unknown): string {
   if (!err) return 'Something went wrong. Please try again.'
@@ -89,13 +92,27 @@ interface ProfileRow {
   college_id: string | null
   full_name: string | null
   email: string | null
+  approval_status?: string | null
+  rejection_reason?: string | null
 }
 
 function mapProfile(row: ProfileRow): AuthProfile {
+  const role: ProfileRole =
+    row.role === 'super_admin'
+      ? 'super_admin'
+      : row.role === 'placement-officer'
+      ? 'placement-officer'
+      : 'student'
+
+  const approvalStatus: ApprovalStatus | null =
+    (row.approval_status as ApprovalStatus) ||
+    (role === 'student' || role === 'super_admin' ? 'approved' : 'pending')
+
   return {
     id: row.id,
-    // Any value other than the explicit officer role is treated as a student.
-    role: row.role === 'placement-officer' ? 'placement-officer' : 'student',
+    role,
+    approvalStatus,
+    rejectionReason: typeof row.rejection_reason === 'string' ? row.rejection_reason : null,
     collegeId: row.college_id ?? null,
     fullName: row.full_name ?? null,
     email: row.email ?? null,

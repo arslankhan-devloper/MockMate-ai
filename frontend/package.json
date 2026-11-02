@@ -14,6 +14,7 @@
     "test:interview-report": "node --test tests/interviewReport.test.ts",
     "test:coding-round": "node --test tests/codingRound.test.ts",
     "test:analytics": "node --test tests/analytics.test.ts",
+    "test:analytics-dashboard": "node --test --experimental-strip-types tests/analyticsFormat.test.ts",
     "test:profile": "node --test tests/profile.test.ts",
     "test:preferences": "node --test tests/preferences.test.ts",
     "test:theme": "node --test tests/theme.test.ts",

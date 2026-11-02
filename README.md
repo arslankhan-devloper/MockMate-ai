@@ -41,7 +41,7 @@ Students practise, track and improve their placement readiness. Placement office
 | **Mock Interviews** | Technical, HR/Behavioural, Aptitude, Combined and Resume-based interview modes with branch/role/company/difficulty selection, configurable duration, question count and language. |
 | **Real-time interview room** | Camera/microphone controls, interviewer avatar, timer, live microphone level, browser speech-to-text, on-device face signals (framing, head direction, approximate eye contact), and adaptive follow-up questions. |
 | **Interview evaluation & report** | Answers are evaluated server-side with Groq. The final report shows the persisted session, every question/answer turn, per-answer evaluation, speaking time, and on-device delivery analysis. |
-| **Analytics** | Aggregated interview metrics over 1W / 1M / 3M / All ranges: session counts, completion rate, average score, score trend, domain/type/difficulty breakdowns and recent sessions. |
+| **Analytics** | A full performance & placement dashboard built only from persisted records, across seven modules: Overview, Interviews, DSA & Coding, Practice Hub, Resume, Roadmap and Placement. Supports 1W / 1M / 3M / All ranges, per-metric tooltips, an explained readiness score and honest empty states. |
 | **Learning Roadmap** | Six curated domains (IT, Mechanical, Electronics, Management, HR, Aptitude) with topic notes, worked examples and practice questions. Students can also generate an AI study plan and AI resources (video, roadmap, docs, practice) per topic. |
 | **Practice Hub (Problem Solving)** | Three practice paths from one landing page: branch-wise MCQs (subject/topic, Easy/Medium/Hard, practice or timed), the existing adaptive DSA coding workspace, and aptitude/reasoning MCQs. Correctness and scoring are server-side; the DSA engine is unchanged. |
 | **Job Portal** | Browse published campus jobs, apply in-app, track applications and withdraw. External remote jobs are aggregated from Himalayas and Jobicy; those listings are read-only and open on the original source. |
@@ -54,6 +54,7 @@ Students practise, track and improve their placement readiness. Placement office
 | **Officer Dashboard** | College-scoped overview of total, published, draft and closed postings plus applicant activity. |
 | **Job Posting** | Create drafts, edit, publish completeness-validated drives, close postings, view applicants and move applications through `Applied → Under Review → Shortlisted / Rejected`. |
 | **College scoping** | Every job and application is scoped to the officer's admin-assigned `college_id`. Cross-college access returns `404`/`403`. |
+| **College analytics** | The same Analytics page in college scope: aggregated interview performance and job-application counts for the officer's own college only. Student-private modules (practice, DSA, coding, roadmap) are never queried for a college scope. |
 | **Officer Profile** | Persisted name, phone, designation and department. Role and college are immutable. |
 
 ### Platform behaviour
@@ -150,8 +151,8 @@ MockMate final/
 │       ├── App.tsx              # Route table, auth gates, role guards
 │       ├── index.css            # Tailwind + design tokens
 │       ├── pages/               # Landing, Auth, Dashboard, interviews, jobs, …
-│       ├── components/          # Layout, UI primitives, media & job components
-│       ├── hooks/               # Profile, jobs, analytics, roadmap hooks
+│       ├── components/          # Layout, UI primitives, media, job & analytics widgets
+│       ├── hooks/               # Profile, jobs, analytics-dashboard, roadmap hooks
 │       ├── lib/                 # API clients, auth, validation, local stores
 │       └── data/                # Campus jobs, problems, roadmap catalogues
 │
@@ -452,6 +453,7 @@ For the full Supabase walkthrough, see [`SUPABASE_SETUP.md`](./SUPABASE_SETUP.md
 | `npm run test:interview-drafts` | Interview draft tests. |
 | `npm run test:interview-report` | Interview report tests. |
 | `npm run test:analytics` | Analytics tests. |
+| `npm run test:analytics-dashboard` | Analytics dashboard formatting, empty-state and refresh-event tests. |
 | `npm run test:profile` | Profile form tests. |
 | `npm run test:preferences` | Preference storage tests. |
 | `npm run test:theme` | Theme resolution tests. |
@@ -490,6 +492,61 @@ Errors use a consistent shape:
 ```
 
 `fields` is present only for validation errors.
+
+### Analytics (dashboard)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/analytics/dashboard?range=1w\|1m\|3m\|all` | Bearer | Every analytics module the caller may see, in one response. |
+
+`range` defaults to `all`; anything else returns `400 invalid_range`. Scope is
+derived from the verified session only — never from the query string:
+
+- **Student** → their own interview, practice, DSA, coding, roadmap and
+  application rows, plus their own recent activity list.
+- **Placement officer** → aggregate interview metrics and job-application counts
+  for their own college. Practice/DSA/coding/roadmap data is student-private, so
+  those modules are returned as `null` rather than queried.
+- Officers without an assigned college get `403 no_college`.
+
+Responses are sent with `Cache-Control: private, no-store, max-age=0` and
+`Vary: Authorization`, because the numbers change as soon as a session, answer or
+application is written.
+
+The response never contains answer text, transcripts, interview turns, code,
+stdin/stdout/stderr, hidden tests or per-answer feedback — only aggregate counts,
+averages and pre-formatted labels. Optional tables are tolerated: a missing
+relation degrades that module to `null` (and its overview values to `null`)
+instead of failing the whole dashboard.
+
+```json
+{
+  "scope": "student",
+  "range": "all",
+  "generatedAt": "2026-01-20T09:00:00.000Z",
+  "availability": {
+    "interviews": true, "practice": true, "dsa": true,
+    "coding": true, "applications": true, "roadmap": true, "resume": false
+  },
+  "overview": {
+    "interviewsCompleted": 4,
+    "averageInterviewScore": 72.5,
+    "practiceTestsAttempted": 6,
+    "practiceAccuracy": 78.3,
+    "dsaProblemsSolved": 11,
+    "codingAttempts": 9,
+    "codingSuccessRate": 88.9,
+    "roadmapTopicsCompleted": 14,
+    "applicationsTotal": 3,
+    "resumeAtsScore": null
+  },
+  "readiness": { "available": true, "score": 74.6, "coverage": 100, "components": [], "formula": "…", "reason": null },
+  "interviews": { "totals": {}, "byDomain": [], "byTopic": [], "recentSessions": [] },
+  "practice": {}, "dsa": {}, "coding": {}, "roadmap": {}, "applications": {},
+  "recentActivity": [],
+  "notes": []
+}
+```
 
 ### Health
 
@@ -617,7 +674,59 @@ practice_not_configured`. No seed questions are inserted by the migration.
 
 ---
 
-## Database Schema
+## Analytics Dashboard
+
+`GET /api/analytics/dashboard` is assembled by
+`backend/src/services/analyticsDashboard.service.ts`. Every number traces to a
+stored row; nothing is seeded, back-filled or inferred.
+
+### Metric sources
+
+| Module | Metric | Source |
+| --- | --- | --- |
+| Interviews | Sessions, completed / in progress / abandoned, average score, domain / difficulty / topic breakdowns, strengths & weaknesses, monthly trend, recent sessions | `interview_sessions`, `interview_turns`, `interview_turn_evaluations` (via the existing `interviewAnalytics.service.ts`) |
+| Practice Hub | Sessions attempted / completed / in progress / abandoned, answers, correct / incorrect, accuracy, category / topic / difficulty / mode / kind breakdowns, trend, recent sessions | `practice_sessions`, `practice_answers`, `practice_questions` (metadata only) |
+| DSA | Problems attempted, unique problems solved, solve rate, submissions, accepted / failed, submission success rate, language / topic / difficulty breakdowns, trend, recent submissions | `problem_submissions`, `problem_questions` (title / topic / difficulty only) |
+| Coding Round | Runs, successes, failures, execution success rate, average runtime, language activity, trend, recent runs | `interview_coding_attempts` (`status`, `exit_code`, `time_seconds`, `language`) |
+| Roadmap | Topics completed, completed in range, domain breakdown, recently completed, latest plan task count | `roadmap_topic_progress`, `roadmap_ai_plans` (task count only) |
+| Placement | Total applications, per-status counts, application activity over time | `job_applications` (`status`, `applied_at`) |
+| Resume | Latest ATS score | **Not server-persisted** — see below |
+
+### Readiness score
+
+A transparent weighted mean, not an AI score:
+
+- Interview average score — weight **40**
+- Practice answer accuracy — weight **30**
+- DSA solve rate (unique solved ÷ unique attempted) — weight **30**
+
+Weights are renormalised over the modules that actually have data, and **at
+least two modules must have data** or the score renders as *"Not enough data"*.
+Missing modules are excluded rather than counted as zero. Coverage (`40`, `70` or
+`100`) is shown next to the score, and the full formula string is rendered in the
+UI. Resume, roadmap completion and application counts are excluded because they
+are not performance measurements.
+
+No facial appearance, personality or inferred-emotion input is used anywhere.
+
+### Deliberately unavailable metrics
+
+| Metric | Why it is not shown |
+| --- | --- |
+| Resume ATS score / score history | Resume analysis runs in the browser and is saved to `localStorage` (`frontend/src/lib/resumeStore.ts`). There is no server table, so nothing can be aggregated. The Resume tab says so explicitly and reports no numbers. |
+| Roadmap "in progress" / "pending" topics / progress % | Only completion rows are persisted (`roadmap_topic_progress`). A saved plan stores task titles, not the catalog topic ids those rows use, so pending cannot be derived honestly. These render as `null` / "—". |
+| Interview score for a college scope | Officers get aggregates of persisted evaluations only; per-student transcript, answer and evaluation detail is never returned. |
+
+### Refresh behaviour
+
+The dashboard listens for `mockmate:analytics-updated` on `window`. Practice
+completion (`PracticePage`), DSA submission (`CodingInterview`), job application
+(`JobPortal`) and interview completion dispatch it; the page then re-fetches in
+the background, keeping the previous numbers on screen until fresh data arrives.
+The manual **Refresh** button and the 1W / 1M / 3M / All filters use the same
+path, and a stale in-flight request is aborted when the range changes.
+
+
 
 | Table | Purpose |
 | --- | --- |
@@ -699,9 +808,15 @@ Additional privacy notes:
 npm --prefix backend test
 ```
 
-The suite (via `tsx --test`) covers external job providers, job/application handlers, roadmap validation/plans/resources, interview validation/language/adaptive generation/handlers/analytics/evaluation storage, the Coding Round provider contract and authorization, problem solving, branch/aptitude practice validation and scoring, code execution, problem generation, account deletion, sensitive-write hardening, and submission idempotency/migration contracts.
+The suite (via `tsx --test`) covers external job providers, job/application handlers, roadmap validation/plans/resources, interview validation/language/adaptive generation/handlers/analytics/evaluation storage, the Coding Round provider contract and authorization, problem solving, branch/aptitude practice validation and scoring, code execution, problem generation, account deletion, sensitive-write hardening, submission idempotency/migration contracts, and the unified analytics dashboard (percentages, range bucketing, unique solved-problem counting, practice accuracy and incomplete sessions, missing optional tables, empty datasets, student ownership, officer college scoping, credential-free column selection, and handler-level security).
 
 Some tests involving live Supabase credentials may be skipped unless `SUPABASE_TEST_*` values are provided.
+
+> The five "fail closed without a service-role client" assertions
+> (`applicationsHandlers`, `interviewHandlers`, `jobApplicationHandlers`,
+> `practice`, `problemSolvingHandlers`) expect no `SUPABASE_SECRET_KEY` in the
+> environment. With one configured in `backend/.env` they fail by design; run
+> `$env:DOTENV_CONFIG_PATH=".env.example"; npm test` to see them pass.
 
 ### Frontend
 
@@ -711,6 +826,7 @@ Run individual suites:
 npm --prefix frontend run test:roadmap
 npm --prefix frontend run test:interview-report
 npm --prefix frontend run test:analytics
+npm --prefix frontend run test:analytics-dashboard
 npm --prefix frontend run test:problem-solving
 npm --prefix frontend run test:practice
 ```
@@ -784,6 +900,9 @@ Production checklist:
 9. **AI features require Groq.** Without `GROQ_API_KEY`, AI-dependent endpoints fail with clear errors rather than fabricated results.
 10. **Local-only stores.** Resume reports, interview/coding drafts, preferences and theme live in browser storage and are scoped to the browser/device. They are not synced across devices.
 11. **The MCQ/aptitude bank ships empty.** `20260114000000_practice_hub.sql` creates the tables but inserts no questions. Branch and aptitude cards show an explicit empty state until an administrator adds verified questions to `practice_questions`.
+12. **Resume analytics are device-only.** Resume analysis is never written to the database, so the Analytics Resume tab reports no ATS score or history and says so. It does not invent one.
+13. **Roadmap in-progress/pending counts are unavailable.** Only completion rows are persisted, and plan tasks do not carry catalog topic ids, so those figures render as "—" rather than being estimated.
+14. **College analytics covers interviews and applications only.** Practice, DSA, coding and roadmap rows are student-owned under RLS, so an officer's dashboard never queries them.
 
 For a deeper audit of feature status and verification gaps, see [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 

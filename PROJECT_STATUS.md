@@ -10,6 +10,66 @@ directory). Commit history could **not** be inspected.
 
 ---
 
+## Analytics dashboard upgrade (2026-11-02)
+
+The Analytics page was rebuilt into a unified performance & placement dashboard
+and now reads from one aggregation endpoint, `GET /api/analytics/dashboard`.
+
+**Audited before building.** Each module was traced to its persistence layer:
+
+| Module | Persisted? | Table(s) |
+| --- | --- | --- |
+| Interviews | Yes | `interview_sessions`, `interview_turns`, `interview_turn_evaluations` |
+| Practice Hub | Yes | `practice_sessions`, `practice_answers`, `practice_questions` |
+| DSA | Yes | `problem_submissions`, `problem_questions` |
+| Coding Round | Yes | `interview_coding_attempts` |
+| Roadmap | Yes (completions only) | `roadmap_topic_progress`, `roadmap_ai_plans` |
+| Placement | Yes | `job_applications` |
+| Resume | **No** | browser `localStorage` only (`frontend/src/lib/resumeStore.ts`) |
+
+**Server side.** `analyticsDashboard.service.ts` holds all builders and fetchers
+with aggregate-safe column constants; `analytics.controller.ts` reuses the
+existing interview fetchers and adds the other modules. Scope comes from
+`req.auth` only. A student is pinned to their own rows; an officer to their own
+college, and student-private modules are skipped entirely (their RLS policies are
+student-only). Responses carry `Cache-Control: private, no-store` and
+`Vary: Authorization`. Optional tables degrade to `null` per module instead of
+failing the request; per-module read failures are caught and logged so the
+dashboard still renders.
+
+**Readiness score.** Implemented only because it can be transparent: weighted
+mean of interview average (40), practice accuracy (30) and DSA solve rate (30),
+renormalised over the modules that have data, minimum two modules, otherwise
+"Not enough data". The formula string ships in the payload and is rendered in the
+UI. No appearance/personality/emotion inputs.
+
+**Honest gaps, surfaced in the UI rather than faked.** Resume ATS score is
+`null` with an explicit explanation because it is never persisted server-side.
+Roadmap in-progress/pending/progress-percent are `null` because plans store task
+titles while progress rows key on catalog topic ids.
+
+**Not changed.** Interview, DSA, Coding Round, Practice Hub and Job Portal
+business logic is untouched apart from one `notifyAnalyticsUpdated()` call after
+practice completion, DSA submission and job application so a mounted dashboard
+re-fetches. No migrations were added — every metric reads an existing table — and
+no data or migration was deleted.
+
+Local verification after this change:
+
+- Backend typecheck: pass. Backend build: pass.
+- Backend tests: **240 total, 234 pass, 5 fail, 1 skipped**. The 33 new dashboard
+  tests all pass; the 5 failures are the pre-existing "fail closed without a
+  service-role client" assertions, which fail only because `backend/.env`
+  contains `SUPABASE_SECRET_KEY`. With `DOTENV_CONFIG_PATH=.env.example` those
+  five files report **43 pass, 0 fail**.
+- Frontend typecheck: pass. Frontend build: pass.
+- Frontend tests: `test:analytics` **2 pass**; new
+  `test:analytics-dashboard` **14 pass**.
+- Live behaviour against a real Supabase project (RLS scope for officers,
+  pagination above 1000 rows) still needs staging verification.
+
+---
+
 ## Problem submission idempotency update (2026-10-23)
 
 Problem Solving submissions now require a client-generated UUID
@@ -169,9 +229,13 @@ previous change. See "Needs manual verification".)
   administrator); neither is editable on any profile screen.
 
 ### Pending / not implemented
-- Persisted **interviews/sessions**, **reports**, **analytics** (the
-  `interview_sessions` table exists, but no real scoring is computed, so
-  persisting it would fabricate data and is intentionally not done).
+- ~~Persisted **interviews/sessions**, **reports**, **analytics**~~ **Update
+  2026-11-02:** sessions, reports, per-answer evaluations and the analytics
+  dashboard are all backed by persisted rows; the dashboard aggregates
+  interviews, practice, DSA, coding attempts, roadmap completions and job
+  applications. The only figures still unavailable are resume ATS history
+  (browser-only) and roadmap in-progress/pending counts (not persisted) — both
+  are labelled as unavailable in the UI.
 - CGPA/active-backlog eligibility enforcement (schema has no student CGPA/backlog
   columns; only branch is checked server-side).
 - Password reset finalisation, account deletion, notifications (explicitly
