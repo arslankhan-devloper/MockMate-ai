@@ -20,9 +20,17 @@ import {
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { getSupabaseClient } from './supabase'
+import {
+  isLocalhost,
+  getPresentationRole,
+  setPresentationRole as persistPresentationRole,
+  getPresentationSession,
+  type PresentationRole,
+} from './presentationMode'
 
 export type ProfileRole = 'student' | 'placement-officer' | 'super_admin'
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
+export type CollegeVerificationStatus = 'pending' | 'verified' | 'rejected'
 
 export interface AuthProfile {
   id: string
@@ -32,6 +40,9 @@ export interface AuthProfile {
   collegeId: string | null
   fullName: string | null
   email: string | null
+  rollNumber?: string | null
+  collegeVerificationStatus?: CollegeVerificationStatus | null
+  collegeVerificationReason?: string | null
 }
 
 export const SUPABASE_UNCONFIGURED_MESSAGE =
@@ -64,17 +75,19 @@ interface AuthContextValue {
   profileLoading: boolean
   profileError: string | null
   signIn: (email: string, password: string) => Promise<SignInResult>
-  signUp: (email: string, password: string, fullName: string) => Promise<SignUpResult>
+  signUp: (email: string, password: string, fullName: string, collegeId?: string, rollNumber?: string) => Promise<SignUpResult>
   signOut: () => Promise<void>
   signOutLocal: () => Promise<void>
   sendPasswordReset: (email: string) => Promise<{ error: string | null }>
   changePassword: (password: string) => Promise<{ error: string | null }>
   refreshProfile: () => Promise<void>
+  presentationRole: PresentationRole | null
+  setPresentationRole: (role: PresentationRole | null) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const PROFILE_COLUMNS = 'id, role, college_id, full_name, email, approval_status, rejection_reason'
+const PROFILE_COLUMNS = 'id, role, college_id, full_name, email, approval_status, rejection_reason, roll_number, college_verification_status, college_verification_reason'
 
 function normalizeError(err: unknown): string {
   if (!err) return 'Something went wrong. Please try again.'
@@ -94,6 +107,9 @@ interface ProfileRow {
   email: string | null
   approval_status?: string | null
   rejection_reason?: string | null
+  roll_number?: string | null
+  college_verification_status?: string | null
+  college_verification_reason?: string | null
 }
 
 function mapProfile(row: ProfileRow): AuthProfile {
@@ -108,6 +124,9 @@ function mapProfile(row: ProfileRow): AuthProfile {
     (row.approval_status as ApprovalStatus) ||
     (role === 'student' || role === 'super_admin' ? 'approved' : 'pending')
 
+  const collegeVerificationStatus =
+    (row.college_verification_status as CollegeVerificationStatus) || 'pending'
+
   return {
     id: row.id,
     role,
@@ -116,6 +135,9 @@ function mapProfile(row: ProfileRow): AuthProfile {
     collegeId: row.college_id ?? null,
     fullName: row.full_name ?? null,
     email: row.email ?? null,
+    rollNumber: row.roll_number ?? null,
+    collegeVerificationStatus,
+    collegeVerificationReason: typeof row.college_verification_reason === 'string' ? row.college_verification_reason : null,
   }
 }
 
@@ -161,6 +183,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [profileNonce, setProfileNonce] = useState(0)
+
+  // Localhost presentation access role (strictly ignored on non-localhost)
+  const [presentationRole, setPresentationRoleState] = useState<PresentationRole | null>(() => {
+    return isLocalhost() ? getPresentationRole() : null
+  })
+
+  const setPresentationRoleCallback = useCallback((role: PresentationRole | null) => {
+    if (!isLocalhost()) return
+    persistPresentationRole(role)
+    setPresentationRoleState(role)
+  }, [])
+
+  // If on localhost and no real Supabase session is signed in, synthesize
+  // presentation session/profile for faculty review of blocked admin/officer panels.
+  const presentationData = useMemo(() => {
+    if (session || !presentationRole || !isLocalhost()) return null
+    return getPresentationSession(presentationRole)
+  }, [session, presentationRole])
+
+  const effectiveSession = session ?? presentationData?.session ?? null
+  const effectiveUser = session?.user ?? presentationData?.user ?? null
+  const effectiveProfile = profile ?? presentationData?.profile ?? null
 
   // Restore the session from Supabase storage and subscribe to auth changes.
   useEffect(() => {
@@ -248,14 +292,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const signUp = useCallback<AuthContextValue['signUp']>(
-    async (email, password, fullName) => {
+    async (email, password, fullName, collegeId, rollNumber) => {
       if (!supabase) {
         return { error: SUPABASE_UNCONFIGURED_MESSAGE, needsEmailConfirmation: false, profile: null }
       }
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName } },
+        options: {
+          data: {
+            full_name: fullName,
+            college_id: collegeId ? collegeId.trim() : null,
+            roll_number: rollNumber ? rollNumber.trim() : null,
+          },
+        },
       })
       if (error) {
         return { error: normalizeError(error), needsEmailConfirmation: false, profile: null }
@@ -276,15 +326,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const signOut = useCallback<AuthContextValue['signOut']>(async () => {
+    if (presentationRole) {
+      setPresentationRoleCallback(null)
+    }
     if (!supabase) return
     await supabase.auth.signOut()
     setProfile(null)
-  }, [supabase])
+  }, [supabase, presentationRole, setPresentationRoleCallback])
 
   // Local-only sign-out is used after the backend has already deleted the Auth
   // user. A server sign-out would fail because the account no longer exists, but
   // the local token and profile state still need to be discarded.
   const signOutLocal = useCallback<AuthContextValue['signOutLocal']>(async () => {
+    if (presentationRole) {
+      setPresentationRoleCallback(null)
+    }
     if (!supabase) return
     try {
       await supabase.auth.signOut({ scope: 'local' })
@@ -296,7 +352,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(null)
       setProfile(null)
     }
-  }, [supabase])
+  }, [supabase, presentationRole, setPresentationRoleCallback])
 
   const sendPasswordReset = useCallback<AuthContextValue['sendPasswordReset']>(
     async email => {
@@ -339,9 +395,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       configured,
       initializing,
-      session,
-      user: session?.user ?? null,
-      profile,
+      session: effectiveSession,
+      user: effectiveUser,
+      profile: effectiveProfile,
       profileLoading,
       profileError,
       signIn,
@@ -351,12 +407,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sendPasswordReset,
       changePassword,
       refreshProfile,
+      presentationRole,
+      setPresentationRole: setPresentationRoleCallback,
     }),
     [
       configured,
       initializing,
-      session,
-      profile,
+      effectiveSession,
+      effectiveUser,
+      effectiveProfile,
       profileLoading,
       profileError,
       signIn,
@@ -366,6 +425,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sendPasswordReset,
       changePassword,
       refreshProfile,
+      presentationRole,
+      setPresentationRoleCallback,
     ],
   )
 

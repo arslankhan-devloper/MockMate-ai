@@ -1,5 +1,14 @@
 import { apiRequest } from './api'
 import type { CampusJobInput } from '../data/campusJobs'
+import {
+  PRESENTATION_TOKEN,
+  DEMO_ADMIN_DASHBOARD,
+  DEMO_COLLEGES,
+  DEMO_OFFICERS,
+  DEMO_STUDENTS,
+  DEMO_DRIVES,
+  DEMO_AUDIT_LOGS,
+} from './presentationMode'
 
 export interface AdminMetrics {
   totalStudents: number
@@ -56,6 +65,11 @@ export interface AdminStudent {
   grad_year: string | null
   college_id: string | null
   collegeName?: string
+  roll_number?: string | null
+  college_verification_status?: 'pending' | 'verified' | 'rejected'
+  college_verification_reason?: string | null
+  verified_by?: string | null
+  verified_at?: string | null
   applicationCount?: number
   created_at: string
   updated_at: string
@@ -172,10 +186,16 @@ export async function registerPlacementOfficer(
 
 // Protected Super Admin Calls
 export async function getAdminDashboard(accessToken: string): Promise<AdminDashboardData> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    return DEMO_ADMIN_DASHBOARD
+  }
   return apiRequest('/api/admin/dashboard', { accessToken })
 }
 
 export async function listAdminColleges(accessToken: string): Promise<AdminCollege[]> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    return DEMO_COLLEGES
+  }
   return apiRequest('/api/admin/colleges', { accessToken })
 }
 
@@ -183,6 +203,17 @@ export async function createAdminCollege(
   accessToken: string,
   payload: { name: string; slug?: string },
 ): Promise<AdminCollege> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    return {
+      id: `col-demo-${Date.now()}`,
+      name: payload.name,
+      slug: payload.slug || payload.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      status: 'active',
+      created_at: new Date().toISOString(),
+      studentCount: 0,
+      officerCount: 0,
+    }
+  }
   return apiRequest('/api/admin/colleges', {
     method: 'POST',
     accessToken,
@@ -195,6 +226,10 @@ export async function updateAdminCollege(
   collegeId: string,
   payload: { name?: string; status?: 'active' | 'inactive' },
 ): Promise<AdminCollege> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const existing = DEMO_COLLEGES.find(c => c.id === collegeId) || DEMO_COLLEGES[0]
+    return { ...existing, ...payload }
+  }
   return apiRequest(`/api/admin/colleges/${encodeURIComponent(collegeId)}`, {
     method: 'PATCH',
     accessToken,
@@ -206,6 +241,17 @@ export async function listAdminOfficers(
   accessToken: string,
   filters?: { status?: string; search?: string },
 ): Promise<AdminOfficer[]> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    let result = [...DEMO_OFFICERS]
+    if (filters?.status && filters.status !== 'all') {
+      result = result.filter(o => o.approval_status === filters.status)
+    }
+    if (filters?.search) {
+      const q = filters.search.toLowerCase()
+      result = result.filter(o => o.full_name.toLowerCase().includes(q) || o.email.toLowerCase().includes(q))
+    }
+    return result
+  }
   const params = new URLSearchParams()
   if (filters?.status) params.set('status', filters.status)
   if (filters?.search) params.set('search', filters.search)
@@ -218,6 +264,10 @@ export async function approveAdminOfficer(
   officerId: string,
   payload?: { collegeId?: string },
 ): Promise<AdminOfficer> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const off = DEMO_OFFICERS.find(o => o.id === officerId) || DEMO_OFFICERS[0]
+    return { ...off, approval_status: 'approved', college_id: payload?.collegeId ?? off.college_id }
+  }
   return apiRequest(`/api/admin/officers/${encodeURIComponent(officerId)}/approve`, {
     method: 'POST',
     accessToken,
@@ -230,6 +280,10 @@ export async function rejectAdminOfficer(
   officerId: string,
   reason: string,
 ): Promise<AdminOfficer> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const off = DEMO_OFFICERS.find(o => o.id === officerId) || DEMO_OFFICERS[0]
+    return { ...off, approval_status: 'rejected', rejection_reason: reason }
+  }
   return apiRequest(`/api/admin/officers/${encodeURIComponent(officerId)}/reject`, {
     method: 'POST',
     accessToken,
@@ -242,6 +296,10 @@ export async function suspendAdminOfficer(
   officerId: string,
   reason: string,
 ): Promise<AdminOfficer> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const off = DEMO_OFFICERS.find(o => o.id === officerId) || DEMO_OFFICERS[0]
+    return { ...off, approval_status: 'suspended', rejection_reason: reason }
+  }
   return apiRequest(`/api/admin/officers/${encodeURIComponent(officerId)}/suspend`, {
     method: 'POST',
     accessToken,
@@ -253,6 +311,10 @@ export async function reactivateAdminOfficer(
   accessToken: string,
   officerId: string,
 ): Promise<AdminOfficer> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const off = DEMO_OFFICERS.find(o => o.id === officerId) || DEMO_OFFICERS[0]
+    return { ...off, approval_status: 'approved', rejection_reason: null }
+  }
   return apiRequest(`/api/admin/officers/${encodeURIComponent(officerId)}/reactivate`, {
     method: 'POST',
     accessToken,
@@ -264,6 +326,10 @@ export async function assignAdminOfficerCollege(
   officerId: string,
   collegeId: string,
 ): Promise<AdminOfficer> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const off = DEMO_OFFICERS.find(o => o.id === officerId) || DEMO_OFFICERS[0]
+    return { ...off, college_id: collegeId }
+  }
   return apiRequest(`/api/admin/officers/${encodeURIComponent(officerId)}/college`, {
     method: 'PATCH',
     accessToken,
@@ -275,6 +341,16 @@ export async function listAdminStudents(
   accessToken: string,
   filters?: { collegeId?: string; branch?: string; search?: string },
 ): Promise<AdminStudent[]> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    let result = [...DEMO_STUDENTS]
+    if (filters?.collegeId) result = result.filter(s => s.college_id === filters.collegeId)
+    if (filters?.branch) result = result.filter(s => s.branch === filters.branch)
+    if (filters?.search) {
+      const q = filters.search.toLowerCase()
+      result = result.filter(s => s.full_name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q))
+    }
+    return result
+  }
   const params = new URLSearchParams()
   if (filters?.collegeId) params.set('collegeId', filters.collegeId)
   if (filters?.branch) params.set('branch', filters.branch)
@@ -287,6 +363,14 @@ export async function getAdminStudentDetails(
   accessToken: string,
   studentId: string,
 ): Promise<AdminStudentDetails> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const stu = DEMO_STUDENTS.find(s => s.id === studentId) || DEMO_STUDENTS[0]
+    return {
+      profile: stu,
+      applications: [],
+      interviews: [],
+    }
+  }
   return apiRequest(`/api/admin/students/${encodeURIComponent(studentId)}`, { accessToken })
 }
 
@@ -295,6 +379,10 @@ export async function updateAdminStudentCollege(
   studentId: string,
   collegeId: string | null,
 ): Promise<AdminStudent> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const stu = DEMO_STUDENTS.find(s => s.id === studentId) || DEMO_STUDENTS[0]
+    return { ...stu, college_id: collegeId }
+  }
   return apiRequest(`/api/admin/students/${encodeURIComponent(studentId)}/college`, {
     method: 'PATCH',
     accessToken,
@@ -302,10 +390,46 @@ export async function updateAdminStudentCollege(
   })
 }
 
+export async function verifyAdminStudent(
+  accessToken: string,
+  studentId: string,
+): Promise<AdminStudent> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const stu = DEMO_STUDENTS.find(s => s.id === studentId) || DEMO_STUDENTS[0]
+    return { ...stu, college_verification_status: 'verified', verified_at: new Date().toISOString() }
+  }
+  return apiRequest(`/api/admin/students/${encodeURIComponent(studentId)}/verify`, {
+    method: 'POST',
+    accessToken,
+  })
+}
+
+export async function rejectAdminStudent(
+  accessToken: string,
+  studentId: string,
+  reason?: string,
+): Promise<AdminStudent> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const stu = DEMO_STUDENTS.find(s => s.id === studentId) || DEMO_STUDENTS[0]
+    return { ...stu, college_verification_status: 'rejected', college_verification_reason: reason ?? 'Invalid roll number' }
+  }
+  return apiRequest(`/api/admin/students/${encodeURIComponent(studentId)}/reject`, {
+    method: 'POST',
+    accessToken,
+    body: { reason },
+  })
+}
+
 export async function listAdminDrives(
   accessToken: string,
   filters?: { collegeId?: string; status?: string },
 ): Promise<AdminDrive[]> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    let result = [...DEMO_DRIVES]
+    if (filters?.collegeId) result = result.filter(d => d.college_id === filters.collegeId)
+    if (filters?.status && filters.status !== 'all') result = result.filter(d => d.status === filters.status)
+    return result
+  }
   const params = new URLSearchParams()
   if (filters?.collegeId) params.set('collegeId', filters.collegeId)
   if (filters?.status) params.set('status', filters.status)
@@ -317,6 +441,32 @@ export async function createAdminDrive(
   accessToken: string,
   payload: CampusJobInput & { collegeId: string; status?: 'draft' | 'published' },
 ): Promise<AdminDrive> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    return {
+      id: `drv-demo-${Date.now()}`,
+      title: payload.title,
+      company: payload.company,
+      college_id: payload.collegeId,
+      collegeName: 'Indian Institute of Technology, Bombay',
+      posted_by: 'demo-super-admin-id',
+      description: payload.description,
+      location: payload.location,
+      job_type: payload.jobType,
+      eligibility: payload.eligibility,
+      branches: payload.branches,
+      min_cgpa: payload.minCgpa,
+      allowed_backlogs: payload.allowedBacklogs,
+      package: payload.package,
+      application_deadline: payload.applicationDeadline,
+      drive_date: payload.driveDate,
+      application_link: payload.applicationLink,
+      link_label: payload.linkLabel,
+      status: payload.status ?? 'published',
+      applicationCount: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+  }
   return apiRequest('/api/admin/drives', {
     method: 'POST',
     accessToken,
@@ -329,6 +479,10 @@ export async function updateAdminDrive(
   driveId: string,
   payload: Partial<CampusJobInput> & { collegeId?: string; status?: 'draft' | 'published' | 'closed' },
 ): Promise<AdminDrive> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const drv = DEMO_DRIVES.find(d => d.id === driveId) || DEMO_DRIVES[0]
+    return { ...drv, ...payload, company: payload.company ?? drv.company }
+  }
   return apiRequest(`/api/admin/drives/${encodeURIComponent(driveId)}`, {
     method: 'PATCH',
     accessToken,
@@ -337,6 +491,10 @@ export async function updateAdminDrive(
 }
 
 export async function closeAdminDrive(accessToken: string, driveId: string): Promise<AdminDrive> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const drv = DEMO_DRIVES.find(d => d.id === driveId) || DEMO_DRIVES[0]
+    return { ...drv, status: 'closed' }
+  }
   return apiRequest(`/api/admin/drives/${encodeURIComponent(driveId)}/close`, {
     method: 'POST',
     accessToken,
@@ -347,6 +505,9 @@ export async function listAdminDriveApplications(
   accessToken: string,
   driveId: string,
 ): Promise<AdminApplication[]> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    return []
+  }
   return apiRequest(`/api/admin/drives/${encodeURIComponent(driveId)}/applications`, { accessToken })
 }
 
@@ -356,6 +517,17 @@ export async function updateAdminApplicationStatus(
   applicationId: string,
   status: 'Applied' | 'Under Review' | 'Shortlisted' | 'Rejected',
 ): Promise<AdminApplication> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    return {
+      id: applicationId,
+      job_id: driveId,
+      student_id: 'stu-iitb-1',
+      student_name: 'Aarav Patel',
+      status,
+      applied_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+  }
   return apiRequest(
     `/api/admin/drives/${encodeURIComponent(driveId)}/applications/${encodeURIComponent(applicationId)}`,
     {
@@ -370,6 +542,9 @@ export async function listAdminAuditLogs(
   accessToken: string,
   filters?: { limit?: number; offset?: number; action?: string; targetType?: string },
 ): Promise<{ logs: AdminAuditLog[]; total: number }> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    return { logs: DEMO_AUDIT_LOGS, total: DEMO_AUDIT_LOGS.length }
+  }
   const params = new URLSearchParams()
   if (filters?.limit) params.set('limit', String(filters.limit))
   if (filters?.offset) params.set('offset', String(filters.offset))

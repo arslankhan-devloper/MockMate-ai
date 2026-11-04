@@ -21,6 +21,7 @@ import {
   listPublicColleges,
   registerPlacementOfficer,
 } from '../lib/adminApi'
+import { isLocalhost, setPresentationRole } from '../lib/presentationMode'
 
 type Page =
   | 'landing'
@@ -384,6 +385,24 @@ export default function OfficerLogin({ onNavigate }: OfficerLoginProps) {
                   <Zap size={15} />
                   Sign in to Officer Portal
                 </Button>
+
+                {isLocalhost() && (
+                  <div className="mt-4 p-3 rounded bg-amber-500/10 border border-amber-500/20 text-center">
+                    <p className="text-[11px] text-amber-800 dark:text-amber-200 mb-2">
+                      Faculty Presentation Mode (Localhost Only)
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPresentationRole('placement-officer')
+                        onNavigate('placement-cell')
+                      }}
+                      className="w-full py-2 px-3 rounded text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer shadow-sm"
+                    >
+                      Enter Placement Cell via Faculty Demo →
+                    </button>
+                  </div>
+                )}
               </form>
             </div>
           )}

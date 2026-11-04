@@ -213,16 +213,17 @@ export async function listJobs(
   role: AppRole,
   collegeId: string | null,
 ) {
+  if (role === 'placement-officer' && !collegeId) {
+    return { data: [] as JobRow[], error: null }
+  }
+
   let query = client
     .from('campus_jobs')
     .select(JOB_COLUMNS)
     .order('created_at', { ascending: false })
 
   if (role === 'placement-officer') {
-    if (!collegeId) {
-      return { data: [] as JobRow[], error: null }
-    }
-    query = query.eq('college_id', collegeId)
+    query = query.eq('college_id', collegeId!)
   } else {
     query = query.eq('status', 'published')
   }

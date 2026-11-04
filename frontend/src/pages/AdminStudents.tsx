@@ -9,12 +9,16 @@ import {
   X,
   Award,
   Briefcase,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react'
 import { Card, Button, Input, Badge } from '../components/ui'
 import {
   listAdminStudents,
   getAdminStudentDetails,
   updateAdminStudentCollege,
+  verifyAdminStudent,
+  rejectAdminStudent,
   listAdminColleges,
   type AdminStudent,
   type AdminStudentDetails,
@@ -34,6 +38,7 @@ export default function AdminStudents() {
   const [search, setSearch] = useState('')
   const [selectedCollegeFilter, setSelectedCollegeFilter] = useState('')
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('')
+  const [selectedVerificationFilter, setSelectedVerificationFilter] = useState('')
 
   // Student Details Modal
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
@@ -44,6 +49,34 @@ export default function AdminStudents() {
   // College Update in Modal
   const [reassignCollegeId, setReassignCollegeId] = useState('')
   const [reassignLoading, setReassignLoading] = useState(false)
+
+  const handleVerifyStudent = async (studentId: string) => {
+    if (!token) return
+    try {
+      await verifyAdminStudent(token, studentId)
+      if (selectedStudentId === studentId) {
+        await openDetails(studentId)
+      }
+      await loadData()
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to verify student enrollment')
+    }
+  }
+
+  const handleRejectStudent = async (studentId: string) => {
+    if (!token) return
+    const reason = prompt('Please enter a rejection reason (optional):')
+    if (reason === null) return
+    try {
+      await rejectAdminStudent(token, studentId, reason.trim() || undefined)
+      if (selectedStudentId === studentId) {
+        await openDetails(studentId)
+      }
+      await loadData()
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to reject student verification')
+    }
+  }
 
   const loadData = async () => {
     if (!token) return
@@ -109,10 +142,14 @@ export default function AdminStudents() {
     const matchesSearch =
       (s.full_name && s.full_name.toLowerCase().includes(search.toLowerCase())) ||
       (s.email && s.email.toLowerCase().includes(search.toLowerCase())) ||
-      (s.collegeName && s.collegeName.toLowerCase().includes(search.toLowerCase()))
+      (s.collegeName && s.collegeName.toLowerCase().includes(search.toLowerCase())) ||
+      (s.roll_number && s.roll_number.toLowerCase().includes(search.toLowerCase()))
     const matchesCollege = selectedCollegeFilter ? s.college_id === selectedCollegeFilter : true
     const matchesBranch = selectedBranchFilter ? s.branch === selectedBranchFilter : true
-    return matchesSearch && matchesCollege && matchesBranch
+    const matchesVerification = selectedVerificationFilter
+      ? (s.college_verification_status || 'pending') === selectedVerificationFilter
+      : true
+    return matchesSearch && matchesCollege && matchesBranch && matchesVerification
   })
 
   return (
@@ -132,9 +169,9 @@ export default function AdminStudents() {
       </div>
 
       {/* Filter Bar */}
-      <Card className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <Card className="p-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
         <Input
-          placeholder="Search by name, email or college..."
+          placeholder="Search by name, email, roll no..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           leftIcon={<Search size={14} />}
@@ -165,6 +202,17 @@ export default function AdminStudents() {
             </option>
           ))}
         </select>
+
+        <select
+          value={selectedVerificationFilter}
+          onChange={e => setSelectedVerificationFilter(e.target.value)}
+          className="bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-md)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-from)] cursor-pointer"
+        >
+          <option value="">All Verifications</option>
+          <option value="pending">Pending Verification</option>
+          <option value="verified">Verified</option>
+          <option value="rejected">Rejected</option>
+        </select>
       </Card>
 
       {/* Error state */}
@@ -191,52 +239,101 @@ export default function AdminStudents() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(student => (
-            <Card key={student.id} className="p-5 flex flex-col justify-between">
-              <div>
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold flex-shrink-0">
-                    {student.full_name?.charAt(0).toUpperCase() || 'S'}
+          {filtered.map(student => {
+            const vStatus = student.college_verification_status || 'pending'
+            return (
+              <Card key={student.id} className="p-5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold flex-shrink-0">
+                      {student.full_name?.charAt(0).toUpperCase() || 'S'}
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge
+                        variant={
+                          vStatus === 'verified'
+                            ? 'info'
+                            : vStatus === 'rejected'
+                            ? 'error'
+                            : 'warning'
+                        }
+                      >
+                        {vStatus === 'verified'
+                          ? 'Verified'
+                          : vStatus === 'rejected'
+                          ? 'Rejected'
+                          : 'Pending'}
+                      </Badge>
+                      <span className="text-[10px] text-[var(--text-muted)]">
+                        {student.applicationCount ?? 0} Applications
+                      </span>
+                    </div>
                   </div>
-                  <Badge variant="default">
-                    {student.applicationCount ?? 0} Applications
-                  </Badge>
+
+                  <h3 className="text-base font-bold text-[var(--text-primary)] mb-1 truncate" title={student.full_name || student.email}>
+                    {student.full_name || 'Anonymous Student'}
+                  </h3>
+                  <p className="text-xs text-[var(--text-secondary)] mb-3 flex items-center gap-1.5 truncate">
+                    <Mail size={12} className="text-[var(--text-muted)] flex-shrink-0" />
+                    {student.email}
+                  </p>
+
+                  <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--border)] space-y-1.5 text-xs text-[var(--text-secondary)] mb-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--text-muted)]">College:</span>
+                      <span className="font-semibold text-[var(--text-primary)] truncate max-w-[170px]" title={student.collegeName}>
+                        {student.collegeName || 'Unassigned'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--text-muted)]">Roll No:</span>
+                      <span className="font-mono font-semibold text-[var(--text-primary)]">
+                        {student.roll_number || 'None'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--text-muted)]">Branch:</span>
+                      <span className="font-medium text-[var(--text-primary)]">{student.branch || 'Not Set'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--text-muted)]">Graduation:</span>
+                      <span className="font-medium text-[var(--text-primary)]">{student.grad_year || 'Not Set'}</span>
+                    </div>
+                  </div>
                 </div>
 
-                <h3 className="text-base font-bold text-[var(--text-primary)] mb-1 truncate" title={student.full_name || student.email}>
-                  {student.full_name || 'Anonymous Student'}
-                </h3>
-                <p className="text-xs text-[var(--text-secondary)] mb-3 flex items-center gap-1.5 truncate">
-                  <Mail size={12} className="text-[var(--text-muted)] flex-shrink-0" />
-                  {student.email}
-                </p>
-
-                <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--border)] space-y-1.5 text-xs text-[var(--text-secondary)] mb-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[var(--text-muted)]">College:</span>
-                    <span className="font-semibold text-[var(--text-primary)] truncate max-w-[170px]" title={student.collegeName}>
-                      {student.collegeName || 'Unassigned'}
-                    </span>
+                <div className="pt-3 border-t border-[var(--border)] flex items-center justify-between text-xs text-[var(--text-muted)]">
+                  <div className="flex items-center gap-1">
+                    {vStatus !== 'verified' && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleVerifyStudent(student.id)}
+                        className="py-1 px-2 text-xs text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10"
+                        title="Approve College Enrollment"
+                      >
+                        <CheckCircle2 size={12} /> Verify
+                      </Button>
+                    )}
+                    {vStatus !== 'rejected' && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleRejectStudent(student.id)}
+                        className="py-1 px-2 text-xs text-red-500 border-red-500/30 hover:bg-red-500/10"
+                        title="Reject College Verification"
+                      >
+                        <XCircle size={12} /> Reject
+                      </Button>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[var(--text-muted)]">Branch:</span>
-                    <span className="font-medium text-[var(--text-primary)]">{student.branch || 'Not Set'}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[var(--text-muted)]">Graduation:</span>
-                    <span className="font-medium text-[var(--text-primary)]">{student.grad_year || 'Not Set'}</span>
-                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => openDetails(student.id)} className="p-1.5 h-auto text-[var(--accent-from)]">
+                    <Eye size={13} /> View Profile
+                  </Button>
                 </div>
-              </div>
-
-              <div className="pt-3 border-t border-[var(--border)] flex items-center justify-between text-xs text-[var(--text-muted)]">
-                <span>Joined {new Date(student.created_at).toLocaleDateString()}</span>
-                <Button size="sm" variant="ghost" onClick={() => openDetails(student.id)} className="p-1.5 h-auto text-[var(--accent-from)]">
-                  <Eye size={13} /> View Profile
-                </Button>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            )
+          })}
         </div>
       )}
 
@@ -264,20 +361,76 @@ export default function AdminStudents() {
             ) : (
               <div className="space-y-6">
                 {/* Profile Header */}
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-extrabold text-xl">
-                    {studentDetails.profile.full_name?.charAt(0).toUpperCase() || 'S'}
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-extrabold text-xl">
+                      {studentDetails.profile.full_name?.charAt(0).toUpperCase() || 'S'}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-bold text-[var(--text-primary)]">
+                          {studentDetails.profile.full_name || 'Unnamed Student'}
+                        </h2>
+                        <Badge
+                          variant={
+                            studentDetails.profile.college_verification_status === 'verified'
+                              ? 'info'
+                              : studentDetails.profile.college_verification_status === 'rejected'
+                              ? 'error'
+                              : 'warning'
+                          }
+                        >
+                          {studentDetails.profile.college_verification_status === 'verified'
+                            ? 'Verified'
+                            : studentDetails.profile.college_verification_status === 'rejected'
+                            ? 'Verification Rejected'
+                            : 'Pending Verification'}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-[var(--text-secondary)] flex items-center gap-2 mt-0.5">
+                        <span>{studentDetails.profile.email}</span>
+                        {studentDetails.profile.phone && <span>• {studentDetails.profile.phone}</span>}
+                        {studentDetails.profile.roll_number && (
+                          <span className="font-mono bg-[var(--surface)] px-1.5 py-0.5 rounded border border-[var(--border)]">
+                            Roll: {studentDetails.profile.roll_number}
+                          </span>
+                        )}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-[var(--text-primary)]">
-                      {studentDetails.profile.full_name || 'Unnamed Student'}
-                    </h2>
-                    <p className="text-xs text-[var(--text-secondary)] flex items-center gap-2 mt-0.5">
-                      <span>{studentDetails.profile.email}</span>
-                      {studentDetails.profile.phone && <span>• {studentDetails.profile.phone}</span>}
-                    </p>
+
+                  <div className="flex items-center gap-2">
+                    {studentDetails.profile.college_verification_status !== 'verified' && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleVerifyStudent(studentDetails.profile.id)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        <CheckCircle2 size={14} /> Verify Enrollment
+                      </Button>
+                    )}
+                    {studentDetails.profile.college_verification_status !== 'rejected' && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleRejectStudent(studentDetails.profile.id)}
+                        className="text-red-500 border-red-500/30 hover:bg-red-500/10"
+                      >
+                        <XCircle size={14} /> Reject Verification
+                      </Button>
+                    )}
                   </div>
                 </div>
+
+                {studentDetails.profile.college_verification_status === 'rejected' && studentDetails.profile.college_verification_reason && (
+                  <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-500 flex items-start gap-2">
+                    <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Rejection Reason: </span>
+                      {studentDetails.profile.college_verification_reason}
+                    </div>
+                  </div>
+                )}
 
                 {/* College Management */}
                 <div className="p-4 rounded-xl bg-[var(--surface)] border border-[var(--border)]">

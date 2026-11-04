@@ -26,6 +26,11 @@ import type {
   JobType,
 } from '../data/campusJobs'
 import { apiRequest } from './api'
+import {
+  PRESENTATION_TOKEN,
+  DEMO_OFFICER_CAMPUS_JOBS,
+  DEMO_OFFICER_APPLICATIONS,
+} from './presentationMode'
 
 interface RawJob {
   id: string
@@ -154,6 +159,9 @@ function normalizeApplicationWithJob(raw: RawApplicationWithJob): CampusApplicat
 }
 
 export async function listJobs(accessToken: string): Promise<CampusJob[]> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    return DEMO_OFFICER_CAMPUS_JOBS
+  }
   const rows = await apiRequest<RawJob[]>('/api/jobs', { accessToken })
   return rows.map(normalizeJob)
 }
@@ -228,6 +236,9 @@ export async function withdrawApplication(accessToken: string, applicationId: st
 export async function listCollegeApplications(
   accessToken: string,
 ): Promise<CampusApplicationWithJob[]> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    return DEMO_OFFICER_APPLICATIONS
+  }
   const rows = await apiRequest<RawApplicationWithJob[]>('/api/applications', { accessToken })
   return rows.map(normalizeApplicationWithJob)
 }
@@ -237,6 +248,18 @@ export async function updateApplicationStatus(
   applicationId: string,
   status: ApplicationStatus,
 ): Promise<CampusApplication> {
+  if (accessToken === PRESENTATION_TOKEN) {
+    const app = DEMO_OFFICER_APPLICATIONS.find(a => a.id === applicationId) || DEMO_OFFICER_APPLICATIONS[0]
+    return {
+      id: app.id,
+      jobId: app.jobId,
+      studentId: app.studentId,
+      studentName: app.studentName,
+      appliedAt: app.appliedAt,
+      updatedAt: new Date().toISOString(),
+      status,
+    }
+  }
   const row = await apiRequest<RawApplication>(`/api/applications/${applicationId}`, {
     method: 'PATCH',
     accessToken,

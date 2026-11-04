@@ -322,9 +322,23 @@ export async function applyToJobHandler(req: Request, res: Response): Promise<vo
     )
     return
   }
-  if (job.job_type === 'In-Campus' && job.college_id !== auth.collegeId) {
-    sendError(res, 403, 'not_eligible_college', 'This job is only open to your college.')
-    return
+  if (job.job_type === 'In-Campus') {
+    if (job.college_id !== auth.collegeId) {
+      sendError(res, 403, 'not_eligible_college', 'This job is only open to your college.')
+      return
+    }
+    if (auth.collegeVerificationStatus === 'pending' || auth.collegeVerificationStatus === 'rejected') {
+      sendError(
+        res,
+        403,
+        'college_verification_required',
+        auth.collegeVerificationStatus === 'rejected'
+          ? `Your college verification was rejected: ${auth.collegeVerificationReason ?? 'Contact your placement officer'}`
+          : 'Your college enrollment verification is pending approval by your placement officer.',
+        { fields: { verificationStatus: auth.collegeVerificationStatus } },
+      )
+      return
+    }
   }
 
   const { data: profileData, error: profileError } = await getOwnProfile(client, auth.userId)

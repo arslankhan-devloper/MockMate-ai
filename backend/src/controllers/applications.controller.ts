@@ -16,6 +16,7 @@ import {
 import { sendError } from '../utils/http.js'
 import { validateApplicationStatus } from '../utils/jobValidation.js'
 import { getServiceWriteClient } from '../utils/serviceWriteClient.js'
+import { recordAuditLog } from '../services/audit.service.js'
 
 // Express 5 may type route params as string | string[]; this API only accepts a
 // single id segment.
@@ -221,4 +222,269 @@ export async function updateApplicationStatusHandler(
   }
 
   res.status(200).json(mapApplicationRow(data as unknown as ApplicationRow))
+}
+
+function getClientIp(req: Request): string | null {
+  const forwarded = req.headers?.['x-forwarded-for']
+  if (typeof forwarded === 'string') {
+    return forwarded.split(',')[0].trim()
+  }
+  return req.socket?.remoteAddress ?? null
+}
+
+// ============================================================================
+// OFFICER STUDENT VERIFICATION WORKFLOW
+// ============================================================================
+
+// GET /api/applications/students — placement officers list students of their own college
+export async function listOfficerStudentsHandler(req: Request, res: Response): Promise<void> {
+  const auth = req.auth
+  if (!auth) {
+    sendError(res, 401, 'not_authenticated', 'Authentication is required.')
+    return
+  }
+  if (!auth.collegeId) {
+    sendError(res, 403, 'no_college', 'No college is assigned to this account.')
+    return
+  }
+
+  const adminClient = getServiceWriteClient(req)
+  if (!adminClient) {
+    sendError(res, 503, 'service_unavailable', 'Database service is not configured.')
+    return
+  }
+
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status : null
+    const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : null
+
+    let query = adminClient
+      .from('profiles')
+      .select('id, email, full_name, phone, branch, grad_year, college_id, roll_number, college_verification_status, college_verification_reason, verified_by, verified_at, created_at, updated_at')
+      .eq('role', 'student')
+      .eq('college_id', auth.collegeId)
+      .order('created_at', { ascending: false })
+
+    if (status && ['pending', 'verified', 'rejected'].includes(status)) {
+      query = query.eq('college_verification_status', status)
+    }
+
+    const { data: students, error } = await query
+    if (error) {
+      sendError(res, 500, 'students_read_failed', error.message)
+      return
+    }
+
+    let list = students ?? []
+    if (search) {
+      list = list.filter(
+        s =>
+          (s.full_name && s.full_name.toLowerCase().includes(search)) ||
+          (s.email && s.email.toLowerCase().includes(search)) ||
+          (s.branch && s.branch.toLowerCase().includes(search)) ||
+          (s.roll_number && s.roll_number.toLowerCase().includes(search))
+      )
+    }
+
+    res.status(200).json(list)
+  } catch (err) {
+    console.error('[officer.students] Failed to list students:', err)
+    sendError(res, 500, 'students_error', 'Failed to retrieve students.')
+  }
+}
+
+// POST /api/applications/students/:id/verify — officer verifies student enrollment for their college
+export async function verifyOfficerStudentHandler(req: Request, res: Response): Promise<void> {
+  const auth = req.auth
+  if (!auth) {
+    sendError(res, 401, 'not_authenticated', 'Authentication is required.')
+    return
+  }
+  if (!auth.collegeId) {
+    sendError(res, 403, 'no_college', 'No college is assigned to this account.')
+    return
+  }
+
+  const studentId = routeId(req)
+  if (!studentId) {
+    sendError(res, 400, 'invalid_id', 'Student ID is required.')
+    return
+  }
+
+  const adminClient = getServiceWriteClient(req)
+  if (!adminClient) {
+    sendError(res, 503, 'service_unavailable', 'Database service is not configured.')
+    return
+  }
+
+  try {
+    const { data: student, error: fetchError } = await adminClient
+      .from('profiles')
+      .select('id, email, full_name, role, college_id, roll_number, college_verification_status')
+      .eq('id', studentId)
+      .eq('role', 'student')
+      .maybeSingle()
+
+    if (fetchError) {
+      sendError(res, 500, 'student_read_failed', fetchError.message)
+      return
+    }
+    if (!student) {
+      sendError(res, 404, 'not_found', 'Student not found.')
+      return
+    }
+
+    // Strict college isolation: officer can only verify students of their own college
+    if (student.college_id !== auth.collegeId) {
+      sendError(res, 403, 'forbidden', 'Student does not belong to your college.')
+      return
+    }
+
+    // Check duplicate verified roll number within this college
+    if (student.roll_number && student.roll_number.trim()) {
+      const cleanRoll = student.roll_number.trim().toLowerCase()
+      const { data: duplicateList } = await adminClient
+        .from('profiles')
+        .select('id, roll_number')
+        .eq('college_id', auth.collegeId)
+        .eq('role', 'student')
+        .eq('college_verification_status', 'verified')
+        .neq('id', studentId)
+
+      const hasDuplicate = (duplicateList ?? []).some(
+        s => s.roll_number && s.roll_number.trim().toLowerCase() === cleanRoll
+      )
+
+      if (hasDuplicate) {
+        sendError(
+          res,
+          409,
+          'duplicate_roll_number',
+          `Roll number '${student.roll_number}' is already verified for another student in your college.`
+        )
+        return
+      }
+    }
+
+    const now = new Date().toISOString()
+    const { data: updated, error: updateError } = await adminClient
+      .from('profiles')
+      .update({
+        college_verification_status: 'verified',
+        college_verification_reason: null,
+        verified_by: auth.userId,
+        verified_at: now,
+      })
+      .eq('id', studentId)
+      .eq('college_id', auth.collegeId)
+      .select('id, email, full_name, college_id, roll_number, college_verification_status, college_verification_reason, verified_by, verified_at')
+      .single()
+
+    if (updateError || !updated) {
+      sendError(res, 500, 'verification_failed', updateError?.message ?? 'Could not verify student.')
+      return
+    }
+
+    await recordAuditLog({
+      actorId: auth.userId,
+      actorRole: auth.role,
+      action: 'student_college_verified',
+      targetType: 'student',
+      targetId: studentId,
+      metadata: { collegeId: auth.collegeId, rollNumber: student.roll_number },
+      ipAddress: getClientIp(req),
+    })
+
+    res.status(200).json(updated)
+  } catch (err) {
+    console.error('[officer.students] Verification error:', err)
+    sendError(res, 500, 'verification_error', 'An unexpected error occurred during verification.')
+  }
+}
+
+// POST /api/applications/students/:id/reject — officer rejects student college verification
+export async function rejectOfficerStudentHandler(req: Request, res: Response): Promise<void> {
+  const auth = req.auth
+  if (!auth) {
+    sendError(res, 401, 'not_authenticated', 'Authentication is required.')
+    return
+  }
+  if (!auth.collegeId) {
+    sendError(res, 403, 'no_college', 'No college is assigned to this account.')
+    return
+  }
+
+  const studentId = routeId(req)
+  if (!studentId) {
+    sendError(res, 400, 'invalid_id', 'Student ID is required.')
+    return
+  }
+
+  const adminClient = getServiceWriteClient(req)
+  if (!adminClient) {
+    sendError(res, 503, 'service_unavailable', 'Database service is not configured.')
+    return
+  }
+
+  try {
+    const { data: student, error: fetchError } = await adminClient
+      .from('profiles')
+      .select('id, email, full_name, role, college_id')
+      .eq('id', studentId)
+      .eq('role', 'student')
+      .maybeSingle()
+
+    if (fetchError) {
+      sendError(res, 500, 'student_read_failed', fetchError.message)
+      return
+    }
+    if (!student) {
+      sendError(res, 404, 'not_found', 'Student not found.')
+      return
+    }
+
+    if (student.college_id !== auth.collegeId) {
+      sendError(res, 403, 'forbidden', 'Student does not belong to your college.')
+      return
+    }
+
+    const { reason } = req.body ?? {}
+    const rejectionReason = typeof reason === 'string' && reason.trim()
+      ? reason.trim()
+      : 'Enrollment verification rejected by college placement officer.'
+
+    const now = new Date().toISOString()
+    const { data: updated, error: updateError } = await adminClient
+      .from('profiles')
+      .update({
+        college_verification_status: 'rejected',
+        college_verification_reason: rejectionReason,
+        verified_by: auth.userId,
+        verified_at: now,
+      })
+      .eq('id', studentId)
+      .eq('college_id', auth.collegeId)
+      .select('id, email, full_name, college_id, roll_number, college_verification_status, college_verification_reason, verified_by, verified_at')
+      .single()
+
+    if (updateError || !updated) {
+      sendError(res, 500, 'rejection_failed', updateError?.message ?? 'Could not reject verification.')
+      return
+    }
+
+    await recordAuditLog({
+      actorId: auth.userId,
+      actorRole: auth.role,
+      action: 'student_college_rejected',
+      targetType: 'student',
+      targetId: studentId,
+      metadata: { collegeId: auth.collegeId, reason: rejectionReason },
+      ipAddress: getClientIp(req),
+    })
+
+    res.status(200).json(updated)
+  } catch (err) {
+    console.error('[officer.students] Rejection error:', err)
+    sendError(res, 500, 'rejection_error', 'An unexpected error occurred during rejection.')
+  }
 }

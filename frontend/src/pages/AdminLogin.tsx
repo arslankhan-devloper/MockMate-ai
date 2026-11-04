@@ -14,6 +14,7 @@ import {
 import { Button, Input, Card } from '../components/ui'
 import { useAuth, SUPABASE_UNCONFIGURED_MESSAGE } from '../lib/auth'
 import { getAdminDashboard } from '../lib/adminApi'
+import { isLocalhost, setPresentationRole } from '../lib/presentationMode'
 
 interface AdminLoginProps {
   onLoginSuccess: () => void
@@ -198,6 +199,23 @@ export default function AdminLogin({ onLoginSuccess, onNavigateHome }: AdminLogi
 
           {/* Security Notice */}
           <div className="mt-6 pt-5 border-t border-[var(--border)] text-center">
+            {isLocalhost() && (
+              <div className="mb-4 p-2.5 rounded bg-amber-500/10 border border-amber-500/20 text-center">
+                <p className="text-[11px] text-amber-800 dark:text-amber-200 mb-2">
+                  Faculty Presentation Mode (Localhost Only)
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPresentationRole('super_admin')
+                    onLoginSuccess()
+                  }}
+                  className="w-full py-1.5 px-3 rounded text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer shadow-sm"
+                >
+                  Enter Admin Panel via Faculty Demo →
+                </button>
+              </div>
+            )}
             <div className="flex items-center justify-center gap-1.5 text-[11px] text-[var(--text-muted)]">
               <CheckCircle2 size={13} className="text-emerald-500" />
               <span>Multi-tier Server Verification & Row Level Security</span>

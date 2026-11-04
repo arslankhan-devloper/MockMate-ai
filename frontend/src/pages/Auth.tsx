@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   BrainCircuit, Mail, Lock, User, Eye, EyeOff, ArrowLeft, Zap, CheckCircle2,
-  ArrowLeftRight, ShieldAlert, AlertTriangle, MailCheck,
+  ArrowLeftRight, ShieldAlert, AlertTriangle, MailCheck, Hash,
 } from 'lucide-react'
 import { Button, Input, Card } from '../components/ui'
 import { useAuth, SUPABASE_UNCONFIGURED_MESSAGE } from '../lib/auth'
@@ -27,6 +27,25 @@ export default function Auth({ mode, onNavigate }: AuthProps) {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [colleges, setColleges] = useState<Array<{ id: string; name: string }>>([])
+  const [collegeId, setCollegeId] = useState('')
+  const [rollNumber, setRollNumber] = useState('')
+
+  useEffect(() => {
+    if (mode !== 'signup') return
+    let active = true
+    fetch('/api/officer-auth/colleges')
+      .then(res => res.json())
+      .then(data => {
+        if (active && Array.isArray(data)) {
+          setColleges(data)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [mode])
 
   const resetMessages = () => {
     setError(null)
@@ -66,6 +85,8 @@ export default function Auth({ mode, onNavigate }: AuthProps) {
           email.trim(),
           password,
           fullName.trim(),
+          collegeId || undefined,
+          rollNumber.trim() || undefined,
         )
         if (signUpError) setError(signUpError)
         else if (needsEmailConfirmation) setNotice('confirm-email')
@@ -222,15 +243,50 @@ export default function Auth({ mode, onNavigate }: AuthProps) {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (
-              <Input
-                label="Full Name"
-                placeholder="Your name"
-                required
-                value={fullName}
-                onChange={e => setFullName(e.target.value)}
-                leftIcon={<User size={14} />}
-                autoComplete="name"
-              />
+              <>
+                <Input
+                  label="Full Name"
+                  placeholder="Your name"
+                  required
+                  value={fullName}
+                  onChange={e => setFullName(e.target.value)}
+                  leftIcon={<User size={14} />}
+                  autoComplete="name"
+                />
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[var(--text-secondary)]">
+                    College / University (for Campus Placements)
+                  </label>
+                  <select
+                    value={collegeId}
+                    onChange={e => setCollegeId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-from)]"
+                  >
+                    <option value="">-- Independent Student / No College --</option>
+                    {colleges.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {collegeId && (
+                  <div>
+                    <Input
+                      label="College Roll / Registration Number"
+                      placeholder="e.g. 21CS042"
+                      value={rollNumber}
+                      onChange={e => setRollNumber(e.target.value)}
+                      leftIcon={<Hash size={14} />}
+                    />
+                    <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                      Used by your placement cell to verify campus drive eligibility.
+                    </p>
+                  </div>
+                )}
+              </>
             )}
             <Input
               label="Email Address"

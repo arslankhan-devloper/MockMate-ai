@@ -1,4 +1,4 @@
-﻿import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import {
   Building2, CheckCircle2, Sparkles, FileText, Search, SearchX,
   SlidersHorizontal, MapPin, GraduationCap, X, Trash2,
@@ -36,6 +36,8 @@ interface JobPortalProps {
   appsLoading: boolean
   appsError: string | null
   onReload: () => void
+  collegeVerificationStatus?: 'pending' | 'verified' | 'rejected' | null
+  collegeVerificationReason?: string | null
 }
 
 const appStatusVariant = (s: ApplicationStatus): 'success' | 'warning' | 'error' | 'info' =>
@@ -58,6 +60,7 @@ function externalJobSkills(category: string | null): string[] {
 export default function JobPortal({
   onNavigate, campusJobs, applications, studentId, studentName, collegeId, collegeName,
   onApply, onWithdraw, jobsLoading, jobsError, appsLoading, appsError, onReload,
+  collegeVerificationStatus, collegeVerificationReason,
 }: JobPortalProps) {
   const [campusQuery, setCampusQuery] = useState('')
   const [campusJobType, setCampusJobType] = useState('All Job Types')
@@ -268,6 +271,30 @@ export default function JobPortal({
           </div>
           <Badge variant="info">Posted by your Placement Cell</Badge>
         </div>
+
+        {collegeVerificationStatus && collegeVerificationStatus !== 'verified' && (
+          <Card className={`p-4 flex items-start gap-3 ${
+            collegeVerificationStatus === 'rejected'
+              ? 'border-red-500/30 bg-red-500/5'
+              : 'border-amber-500/30 bg-amber-500/5'
+          }`}>
+            <AlertTriangle size={18} className={`flex-shrink-0 mt-0.5 ${
+              collegeVerificationStatus === 'rejected' ? 'text-red-500' : 'text-amber-500'
+            }`} />
+            <div className="space-y-1">
+              <p className="text-sm font-bold text-[var(--text-primary)]">
+                {collegeVerificationStatus === 'rejected'
+                  ? 'College Verification Rejected'
+                  : 'College Enrollment Verification Pending'}
+              </p>
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                {collegeVerificationStatus === 'rejected'
+                  ? `Your college placement cell rejected your enrollment verification (${collegeVerificationReason || 'Please contact your placement cell'}). You can still view and apply to Off-Campus jobs.`
+                  : 'Your student enrollment is awaiting verification by your College Placement Officer. You can access all learning features (AI Interviews, Practice Hub, DSA Problems), but applying to In-Campus drives requires placement cell verification.'}
+              </p>
+            </div>
+          </Card>
+        )}
 
         <Card className="p-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

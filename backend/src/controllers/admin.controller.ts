@@ -4,7 +4,10 @@ import { recordAuditLog, fetchAuditLogs } from '../services/audit.service.js'
 import { sendError } from '../utils/http.js'
 import { JOB_COLUMNS, APPLICATION_COLUMNS, type JobRow, type ApplicationRow } from '../services/jobs.service.js'
 
-function getAdminClient(res: Response) {
+function getAdminClient(res: Response, req?: Request) {
+  if (req?.supabaseWrite !== undefined) {
+    return req.supabaseWrite
+  }
   const client = getSupabaseAdminClient()
   if (!client) {
     sendError(res, 503, 'service_unavailable', 'Database admin service is not configured')
@@ -14,7 +17,7 @@ function getAdminClient(res: Response) {
 }
 
 function getClientIp(req: Request): string | null {
-  const forwarded = req.headers['x-forwarded-for']
+  const forwarded = req.headers?.['x-forwarded-for']
   if (typeof forwarded === 'string') {
     return forwarded.split(',')[0].trim()
   }
@@ -586,11 +589,12 @@ export async function listStudentsHandler(req: Request, res: Response): Promise<
   try {
     const collegeId = typeof req.query.collegeId === 'string' ? req.query.collegeId : null
     const branch = typeof req.query.branch === 'string' ? req.query.branch : null
+    const verificationStatus = typeof req.query.verificationStatus === 'string' ? req.query.verificationStatus : null
     const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : null
 
     let query = client
       .from('profiles')
-      .select('id, email, full_name, phone, branch, grad_year, college_id, created_at, updated_at')
+      .select('id, email, full_name, phone, branch, grad_year, college_id, roll_number, college_verification_status, college_verification_reason, verified_by, verified_at, created_at, updated_at')
       .eq('role', 'student')
       .order('created_at', { ascending: false })
 
@@ -599,6 +603,9 @@ export async function listStudentsHandler(req: Request, res: Response): Promise<
     }
     if (branch) {
       query = query.eq('branch', branch)
+    }
+    if (verificationStatus && ['pending', 'verified', 'rejected'].includes(verificationStatus)) {
+      query = query.eq('college_verification_status', verificationStatus)
     }
 
     const { data: students, error } = await query
@@ -629,7 +636,8 @@ export async function listStudentsHandler(req: Request, res: Response): Promise<
           (s.full_name && s.full_name.toLowerCase().includes(search)) ||
           (s.email && s.email.toLowerCase().includes(search)) ||
           (s.collegeName && s.collegeName.toLowerCase().includes(search)) ||
-          (s.branch && s.branch.toLowerCase().includes(search))
+          (s.branch && s.branch.toLowerCase().includes(search)) ||
+          (s.roll_number && s.roll_number.toLowerCase().includes(search))
       )
     }
 
@@ -653,7 +661,7 @@ export async function getStudentDetailsHandler(req: Request, res: Response): Pro
   try {
     const { data: profile, error } = await client
       .from('profiles')
-      .select('id, email, full_name, phone, branch, grad_year, college_id, created_at, updated_at')
+      .select('id, email, full_name, phone, branch, grad_year, college_id, roll_number, college_verification_status, college_verification_reason, verified_by, verified_at, created_at, updated_at')
       .eq('id', studentId)
       .eq('role', 'student')
       .maybeSingle()
@@ -750,6 +758,142 @@ export async function updateStudentCollegeHandler(req: Request, res: Response): 
   })
 
   res.status(200).json(data)
+}
+
+export async function verifyAdminStudentHandler(req: Request, res: Response): Promise<void> {
+  const client = getAdminClient(res, req)
+  if (!client) return
+
+  const studentId = getParam(req, 'id')
+  if (!studentId) {
+    sendError(res, 400, 'invalid_id', 'Student ID is required')
+    return
+  }
+
+  try {
+    const { data: student, error: fetchErr } = await client
+      .from('profiles')
+      .select('id, email, full_name, college_id, roll_number, college_verification_status')
+      .eq('id', studentId)
+      .eq('role', 'student')
+      .maybeSingle()
+
+    if (fetchErr || !student) {
+      sendError(res, 404, 'not_found', 'Student profile not found')
+      return
+    }
+
+    // If student has college and roll number, verify uniqueness
+    if (student.college_id && student.roll_number && student.roll_number.trim()) {
+      const cleanRoll = student.roll_number.trim().toLowerCase()
+      const { data: duplicates } = await client
+        .from('profiles')
+        .select('id, roll_number')
+        .eq('college_id', student.college_id)
+        .eq('role', 'student')
+        .eq('college_verification_status', 'verified')
+        .neq('id', studentId)
+
+      const hasDuplicate = (duplicates ?? []).some(
+        s => s.roll_number && s.roll_number.trim().toLowerCase() === cleanRoll
+      )
+
+      if (hasDuplicate) {
+        sendError(
+          res,
+          409,
+          'duplicate_roll_number',
+          `Roll number '${student.roll_number}' is already verified for another student in this college.`
+        )
+        return
+      }
+    }
+
+    const now = new Date().toISOString()
+    const { data: updated, error: updateErr } = await client
+      .from('profiles')
+      .update({
+        college_verification_status: 'verified',
+        college_verification_reason: null,
+        verified_by: req.auth!.userId,
+        verified_at: now,
+      })
+      .eq('id', studentId)
+      .select('id, email, full_name, college_id, roll_number, college_verification_status, college_verification_reason, verified_by, verified_at')
+      .single()
+
+    if (updateErr || !updated) {
+      sendError(res, 500, 'update_failed', updateErr?.message ?? 'Could not verify student')
+      return
+    }
+
+    await recordAuditLog({
+      actorId: req.auth!.userId,
+      actorRole: req.auth!.role,
+      action: 'student_college_verified',
+      targetType: 'student',
+      targetId: studentId,
+      metadata: { collegeId: student.college_id, rollNumber: student.roll_number },
+      ipAddress: getClientIp(req),
+    })
+
+    res.status(200).json(updated)
+  } catch (err) {
+    console.error('[admin.students] Failed to verify student:', err)
+    sendError(res, 500, 'verification_error', 'Failed to verify student')
+  }
+}
+
+export async function rejectAdminStudentHandler(req: Request, res: Response): Promise<void> {
+  const client = getAdminClient(res, req)
+  if (!client) return
+
+  const studentId = getParam(req, 'id')
+  if (!studentId) {
+    sendError(res, 400, 'invalid_id', 'Student ID is required')
+    return
+  }
+
+  const { reason } = req.body ?? {}
+  const rejectionReason = typeof reason === 'string' && reason.trim()
+    ? reason.trim()
+    : 'Enrollment verification rejected by administrator.'
+
+  try {
+    const now = new Date().toISOString()
+    const { data: updated, error: updateErr } = await client
+      .from('profiles')
+      .update({
+        college_verification_status: 'rejected',
+        college_verification_reason: rejectionReason,
+        verified_by: req.auth!.userId,
+        verified_at: now,
+      })
+      .eq('id', studentId)
+      .eq('role', 'student')
+      .select('id, email, full_name, college_id, roll_number, college_verification_status, college_verification_reason, verified_by, verified_at')
+      .single()
+
+    if (updateErr || !updated) {
+      sendError(res, 500, 'update_failed', updateErr?.message ?? 'Could not reject student verification')
+      return
+    }
+
+    await recordAuditLog({
+      actorId: req.auth!.userId,
+      actorRole: req.auth!.role,
+      action: 'student_college_rejected',
+      targetType: 'student',
+      targetId: studentId,
+      metadata: { reason: rejectionReason },
+      ipAddress: getClientIp(req),
+    })
+
+    res.status(200).json(updated)
+  } catch (err) {
+    console.error('[admin.students] Failed to reject student verification:', err)
+    sendError(res, 500, 'rejection_error', 'Failed to reject student verification')
+  }
 }
 
 // ============================================================================

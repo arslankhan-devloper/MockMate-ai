@@ -32,6 +32,7 @@ import AdminAuditLogs from './pages/AdminAuditLogs'
 import AdminAnalytics from './pages/AdminAnalytics'
 import Layout, { type Role } from './components/Layout'
 import AdminLayout, { type AdminPage } from './components/AdminLayout'
+import PresentationBanner from './components/PresentationBanner'
 import { Button, Card } from './components/ui'
 import { BrainCircuit, Loader2, RefreshCw, LogOut, ShieldAlert } from 'lucide-react'
 import { useAuth } from './lib/auth'
@@ -187,7 +188,7 @@ function ProfileProblemScreen({
 export default function App() {
   const {
     session, user, profile: authProfile, initializing, profileLoading, profileError,
-    signOut, signOutLocal, refreshProfile,
+    signOut, signOutLocal, refreshProfile, presentationRole, setPresentationRole,
   } = useAuth()
 
   // Persisted profile for the signed-in user, loaded/saved through the backend.
@@ -501,6 +502,18 @@ export default function App() {
 
     return (
       <div className={dark ? 'dark' : ''} style={{ background: 'var(--bg)', minHeight: '100dvh' }}>
+        {presentationRole && (
+          <PresentationBanner
+            currentRole={presentationRole}
+            onRoleChange={newRole => {
+              setPresentationRole(newRole)
+              navigate(newRole === 'super_admin' ? 'admin-dashboard' : 'placement-cell', { replace: true })
+            }}
+            onExit={() => {
+              void logout()
+            }}
+          />
+        )}
         <AdminLayout
           page={adminPage}
           onNavigate={p => navigate(p)}
@@ -576,7 +589,17 @@ export default function App() {
 
   // Auth pages
   if (page === 'landing') return <Landing onNavigate={nav} dark={dark} onToggleDark={toggleDark} />
-  if (page === 'login-selection') return <LoginSelection onNavigate={nav} />
+  if (page === 'login-selection') {
+    return (
+      <LoginSelection
+        onNavigate={nav}
+        onSelectPresentationRole={role => {
+          setPresentationRole(role)
+          navigate(role === 'super_admin' ? 'admin-dashboard' : 'placement-cell', { replace: true })
+        }}
+      />
+    )
+  }
   if (page === 'login') return <Auth mode="login" onNavigate={nav} />
   if (page === 'signup') return <Auth mode="signup" onNavigate={nav} />
   if (page === 'forgot') return <Auth mode="forgot" onNavigate={nav} />
@@ -584,7 +607,20 @@ export default function App() {
 
   // App pages (with sidebar layout)
   return (
-    <Layout page={page as any} onNavigate={nav as any} dark={dark} onToggleDark={toggleDark} role={role} onLogout={() => { void logout() }} userName={userLabel} userEmail={userEmail}>
+    <div className={dark ? 'dark' : ''} style={{ minHeight: '100dvh' }}>
+      {presentationRole && (
+        <PresentationBanner
+          currentRole={presentationRole}
+          onRoleChange={newRole => {
+            setPresentationRole(newRole)
+            navigate(newRole === 'super_admin' ? 'admin-dashboard' : 'placement-cell', { replace: true })
+          }}
+          onExit={() => {
+            void logout()
+          }}
+        />
+      )}
+      <Layout page={page as any} onNavigate={nav as any} dark={dark} onToggleDark={toggleDark} role={role} onLogout={() => { void logout() }} userName={userLabel} userEmail={userEmail}>
       {page === 'dashboard' && (
         <Dashboard
           onNavigate={nav}
@@ -661,6 +697,8 @@ export default function App() {
           appsLoading={studentApplications.loading}
           appsError={studentApplications.error}
           onReload={() => { campusJobs.reload(); studentApplications.reload() }}
+          collegeVerificationStatus={authProfile?.collegeVerificationStatus}
+          collegeVerificationReason={authProfile?.collegeVerificationReason}
         />
       )}
       {page === 'officer-profile' && role === 'placement-officer' && (
@@ -703,5 +741,6 @@ export default function App() {
         />
       )}
     </Layout>
+    </div>
   )
 }

@@ -1,10 +1,12 @@
-import { BrainCircuit, GraduationCap, Building2, ArrowLeft, ArrowRight, ShieldCheck } from 'lucide-react'
+import { BrainCircuit, GraduationCap, Building2, ArrowLeft, ArrowRight, ShieldCheck, ShieldAlert, KeyRound } from 'lucide-react'
 import { Card, Button, Badge } from '../components/ui'
+import { isLocalhost, setPresentationRole, type PresentationRole } from '../lib/presentationMode'
 
-type Page = 'landing' | 'login' | 'officer-login' | 'login-selection'
+type Page = 'landing' | 'login' | 'officer-login' | 'login-selection' | 'admin-dashboard' | 'placement-cell'
 
 interface LoginSelectionProps {
   onNavigate: (p: Page) => void
+  onSelectPresentationRole?: (role: PresentationRole) => void
 }
 
 const options = [
@@ -28,7 +30,7 @@ const options = [
   },
 ]
 
-export default function LoginSelection({ onNavigate }: LoginSelectionProps) {
+export default function LoginSelection({ onNavigate, onSelectPresentationRole }: LoginSelectionProps) {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div className="max-w-4xl w-full mx-auto px-6 py-8">
@@ -72,6 +74,50 @@ export default function LoginSelection({ onNavigate }: LoginSelectionProps) {
             </Card>
           ))}
         </div>
+
+        {/* Localhost Presentation Switcher */}
+        {isLocalhost() && (
+          <div className="mt-8 p-5 rounded-[var(--radius-md)] border border-amber-500/40 bg-amber-500/10 dark:bg-amber-950/20 max-w-2xl mx-auto shadow-sm">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded bg-amber-500 text-white uppercase text-[10px] tracking-wider">
+                <ShieldAlert size={12} />
+                Localhost Only
+              </span>
+              <h3 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                Faculty Presentation Mode
+              </h3>
+            </div>
+            <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed mb-4">
+              Directly preview the Super Admin or Placement Cell interfaces for faculty demonstration without waiting for account approval setup. Production authentication, RLS and database security are unaffected.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Button
+                variant="secondary"
+                className="w-full justify-center text-xs py-2 border-amber-500/50 hover:bg-amber-500/20 text-amber-900 dark:text-amber-100"
+                onClick={() => {
+                  setPresentationRole('super_admin')
+                  if (onSelectPresentationRole) onSelectPresentationRole('super_admin')
+                  else onNavigate('admin-dashboard')
+                }}
+              >
+                <KeyRound size={14} className="mr-1.5 text-amber-600 dark:text-amber-400" />
+                Launch Super Admin Panel →
+              </Button>
+              <Button
+                variant="secondary"
+                className="w-full justify-center text-xs py-2 border-amber-500/50 hover:bg-amber-500/20 text-amber-900 dark:text-amber-100"
+                onClick={() => {
+                  setPresentationRole('placement-officer')
+                  if (onSelectPresentationRole) onSelectPresentationRole('placement-officer')
+                  else onNavigate('placement-cell')
+                }}
+              >
+                <Building2 size={14} className="mr-1.5 text-amber-600 dark:text-amber-400" />
+                Launch Placement Cell →
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Sign-in notice */}
         <div className="mt-8 flex items-start gap-3 p-4 rounded-[var(--radius-md)] bg-[var(--accent-soft)] border border-[var(--border)] max-w-2xl mx-auto">

@@ -13,6 +13,8 @@ import {
   listStudentsHandler,
   getStudentDetailsHandler,
   updateStudentCollegeHandler,
+  verifyAdminStudentHandler,
+  rejectAdminStudentHandler,
   listAllDrivesHandler,
   createAdminDriveHandler,
   updateAdminDriveHandler,
@@ -49,6 +51,8 @@ adminRouter.patch('/officers/:id/college', assignOfficerCollegeHandler)
 adminRouter.get('/students', listStudentsHandler)
 adminRouter.get('/students/:id', getStudentDetailsHandler)
 adminRouter.patch('/students/:id/college', updateStudentCollegeHandler)
+adminRouter.post('/students/:id/verify', verifyAdminStudentHandler)
+adminRouter.post('/students/:id/reject', rejectAdminStudentHandler)
 
 // Placement Drives
 adminRouter.get('/drives', listAllDrivesHandler)

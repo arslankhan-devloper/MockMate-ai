@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express'
 import { createUserClient, getSupabaseClient } from '../services/supabase.js'
-import type { AppRole, ApprovalStatus } from '../types/auth.js'
+import type { AppRole, ApprovalStatus, CollegeVerificationStatus } from '../types/auth.js'
 
 function unauthorized(res: Response, message: string): void {
   res.status(401).json({ error: message })
@@ -41,7 +41,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   const userClient = createUserClient(accessToken)
   const { data: profile, error: profileError } = await userClient
     .from('profiles')
-    .select('role, college_id, approval_status, rejection_reason')
+    .select('role, college_id, approval_status, rejection_reason, roll_number, college_verification_status, college_verification_reason, verified_by, verified_at')
     .eq('id', data.user.id)
     .maybeSingle()
 
@@ -63,6 +63,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   const rejectionReason = typeof profile?.rejection_reason === 'string' ? profile.rejection_reason : null
   const collegeId = typeof profile?.college_id === 'string' ? profile.college_id : null
+  const rollNumber = typeof profile?.roll_number === 'string' ? profile.roll_number : null
+  const collegeVerificationStatus = (profile?.college_verification_status as CollegeVerificationStatus) || 'pending'
+  const collegeVerificationReason = typeof profile?.college_verification_reason === 'string' ? profile.college_verification_reason : null
+  const verifiedBy = typeof profile?.verified_by === 'string' ? profile.verified_by : null
+  const verifiedAt = typeof profile?.verified_at === 'string' ? profile.verified_at : null
 
   req.auth = {
     userId: data.user.id,
@@ -71,6 +76,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     approvalStatus,
     rejectionReason,
     collegeId,
+    rollNumber,
+    collegeVerificationStatus,
+    collegeVerificationReason,
+    verifiedBy,
+    verifiedAt,
     accessToken,
   }
   req.supabase = userClient
